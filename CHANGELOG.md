@@ -7,6 +7,10 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- CPU and memory showed 100 times too low (13% as 0.13%): Laravel Cloud reports them as fractions, which LC Menubar now converts to percent.
+
 ## [0.1.5] - 2026-11-11
 
 ### Changed

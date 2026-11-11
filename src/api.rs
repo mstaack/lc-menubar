@@ -113,6 +113,9 @@ struct RawMetric {
     #[serde(default)]
     average: Vec<Option<f64>>,
     total: Option<f64>,
+    /// Top of the metric's scale: 1 for CPU and memory, which Cloud reports as
+    /// fractions (0.13 = 13 %).
+    max: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -121,13 +124,19 @@ struct RawPoint {
     y: Vec<Option<f64>>,
 }
 
-/// A metric is `{"error": true}` when Cloud could not read it.
-fn parse_metric(v: Option<&serde_json::Value>) -> Option<Metric> {
+/// A metric is `{"error": true}` when Cloud could not read it. `percent` metrics
+/// (CPU, memory) reported as fractions (scale max 1) are converted to percent.
+fn parse_metric(v: Option<&serde_json::Value>, percent: bool) -> Option<Metric> {
     let v = v?;
     if v.get("error").is_some() {
         return None;
     }
     let raw: RawMetric = serde_json::from_value(v.clone()).ok()?;
+    let k = if percent && raw.max.is_some_and(|m| m <= 1.0) {
+        100.0
+    } else {
+        1.0
+    };
     let n = raw
         .labels
         .len()
@@ -139,8 +148,9 @@ fn parse_metric(v: Option<&serde_json::Value>) -> Option<Metric> {
                 .data
                 .iter()
                 .filter_map(|p| p.y.get(i).copied().flatten())
+                .map(|y| y * k)
                 .collect(),
-            average: raw.average.get(i).copied().flatten(),
+            average: raw.average.get(i).copied().flatten().map(|a| a * k),
         })
         .collect();
     Some(Metric {
@@ -153,11 +163,11 @@ fn parse_metrics(resp: MetricsResp, period: Period) -> Metrics {
     let d = &resp.data;
     Metrics {
         period,
-        cpu: parse_metric(d.get("cpu_usage")),
-        memory: parse_metric(d.get("memory_usage")),
-        requests: parse_metric(d.get("http_response_count")),
-        replicas: parse_metric(d.get("replica_count")),
-        workers: parse_metric(d.get("web_workers_count")),
+        cpu: parse_metric(d.get("cpu_usage"), true),
+        memory: parse_metric(d.get("memory_usage"), true),
+        requests: parse_metric(d.get("http_response_count"), false),
+        replicas: parse_metric(d.get("replica_count"), false),
+        workers: parse_metric(d.get("web_workers_count"), false),
     }
 }
 
@@ -703,6 +713,24 @@ mod tests {
         assert_eq!(req.series[1].label, "5xx");
         assert_eq!(m.replicas.unwrap().series[0].points, vec![2.0]);
         assert!(m.workers.is_none());
+    }
+
+    /// Cloud reports CPU and memory as fractions of 1 (as the cloud CLI shows).
+    #[test]
+    fn fractional_cpu_and_memory_become_percent() {
+        let json = r#"{"data":{
+            "cpu_usage":{"labels":["App"],"data":[{"x":"13:15","y":[0.0725]},{"x":"13:17","y":[0.1321]}],
+                         "average":[0.1262],"min":0,"max":1},
+            "memory_usage":{"labels":["App"],"data":[{"x":"13:15","y":[0.1373]}],"average":[0.1399],"min":0,"max":1},
+            "replica_count":{"labels":["App"],"data":[{"x":"13:15","y":[1]}],"average":[1],"min":0,"max":10}
+          }}"#;
+        let m = parse_metrics(serde_json::from_str(json).unwrap(), Period::H1);
+        let cpu = m.cpu.unwrap();
+        assert!((cpu.series[0].points[1] - 13.21).abs() < 1e-9);
+        assert!((cpu.series[0].average.unwrap() - 12.62).abs() < 1e-9);
+        assert!((m.memory.unwrap().series[0].points[0] - 13.73).abs() < 1e-9);
+        // Counts are never scaled.
+        assert_eq!(m.replicas.unwrap().series[0].points, vec![1.0]);
     }
 
     #[test]
