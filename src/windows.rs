@@ -108,6 +108,63 @@ pub fn logs_html(init: &impl Serialize) -> String {
 pub fn commands_html(init: &impl Serialize) -> String {
     page(COMMANDS_BODY, init)
 }
+pub fn update_html(init: &impl Serialize) -> String {
+    page(UPDATE_BODY, init)
+}
+
+/// Standard base64, for embedding small images as `data:` URLs.
+pub fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= c.len() {
+                out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+const UPDATE_BODY: &str = r##"<body>
+<style>
+body{display:flex;flex-direction:column}
+.uhead{display:flex;align-items:center;gap:16px;padding:24px 28px 18px}
+.uhead img{width:64px;height:64px;flex:none}
+.uhead h1{font-size:18px;line-height:24px}
+.uhead p{color:var(--text-2);margin:2px 0 0}
+.unotes{flex:1;overflow:auto;padding:0 28px 20px}
+.unotes .rel-head{margin-top:4px}
+footer.ubar{display:flex;align-items:center;gap:8px;padding:12px 20px;border-top:1px solid var(--line);background:var(--bg)}
+</style>
+<div class="uhead"><img id="icon" alt=""><div><h1 id="title"></h1><p id="sub"></p></div></div>
+<div class="unotes" id="notes"></div>
+<footer class="ubar">
+  <button class="quiet" id="page">Release page</button>
+  <span class="spacer"></span>
+  <button id="later">Later</button>
+  <button class="primary" id="install"></button>
+</footer>
+<script>
+/*COMMON_JS*/
+$('#icon').src = INIT.icon;
+$('#title').textContent = `LC Menubar ${INIT.version} is available`;
+$('#sub').textContent = INIT.canInstall
+  ? `You have ${INIT.current}. LC Menubar restarts after the update.`
+  : `You have ${INIT.current}. Download the new version from the release page.`;
+if (INIT.groups.length) $('#notes').append(renderRelease({version: "What's new", groups: INIT.groups}, null));
+$('#install').textContent = INIT.canInstall ? 'Install and restart' : 'Open release page';
+$('#install').onclick = () => { $('#install').disabled = true; send({type: 'install'}); };
+$('#later').onclick = () => send({type: 'close'});
+$('#page').onclick = () => send({type: 'page'});
+if (!INIT.canInstall) $('#page').style.display = 'none';
+document.addEventListener('keydown', e => { if (e.key === 'Escape') send({type: 'close'}); });
+</script></body>"##;
 
 const BASE_CSS: &str = r#"
 :root{
@@ -176,6 +233,25 @@ footer.status{display:flex;align-items:center;gap:8px;padding:12px 24px;border-t
   color:var(--text-3);font-size:12px;min-height:52px;background:var(--bg)}
 footer.status .msg{flex:1}
 footer.status .msg.err{color:var(--neg)}
+.rel-head{display:flex;align-items:center;gap:8px;margin:0 0 10px}
+.rel+.rel{margin-top:32px}
+#newslist{margin-top:28px}
+.rel-head .v{font-size:15px;line-height:22px;font-weight:600;color:var(--text)}
+.rel-head .d{color:var(--text-3);font-size:12px}
+.badge{font-size:11px;line-height:18px;font-weight:600;padding:0 8px;border-radius:9px;background:var(--accent-soft);color:var(--accent)}
+.rel .card{overflow:hidden;-webkit-user-select:text;cursor:auto}
+.grp{padding:14px 18px 10px}
+.grp+.grp{border-top:1px solid var(--line)}
+.tag{display:inline-block;font-size:10.5px;line-height:18px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  padding:0 8px;border-radius:5px;color:var(--text-2);background:var(--raised)}
+.tag.added{color:var(--pos);background:color-mix(in srgb,var(--pos) 15%,transparent)}
+.tag.changed{color:var(--accent);background:var(--accent-soft)}
+.tag.fixed{color:var(--warn);background:color-mix(in srgb,var(--warn) 15%,transparent)}
+.tag.removed,.tag.security,.tag.deprecated{color:var(--neg);background:color-mix(in srgb,var(--neg) 14%,transparent)}
+.grp ul{list-style:none;margin:8px 0 0;padding:0}
+.grp li{position:relative;padding-left:16px;margin:0 0 7px;line-height:20px;color:var(--text)}
+.grp li:before{content:"";position:absolute;left:3px;top:8px;width:5px;height:5px;border-radius:3px;background:var(--line-strong)}
+.rel code{font-family:var(--mono);font-size:11.5px;background:var(--raised);border:1px solid var(--line);border-radius:4px;padding:0 4px}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:5px;border:2px solid var(--bg)}
 "#;
@@ -188,6 +264,34 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 document.addEventListener('keydown', e => { if (e.metaKey && e.key === 'w') { e.preventDefault(); send({type: 'close'}); } });
 // After the page's script has built it (a microtask: hidden views throttle timers).
 queueMicrotask(() => send({type: 'ready'}));
+// Changelog rendering (What's new, the update window): inline `code` becomes
+// <code>, [text](url) keeps its text; groups get a coloured label.
+function inline(text) {
+  const f = document.createDocumentFragment();
+  text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').split('`').forEach((part, i) =>
+    f.append(i % 2 ? el('code', null, part) : document.createTextNode(part)));
+  return f;
+}
+function renderGroups(groups) {
+  const card = el('div', 'card');
+  for (const [name, items] of groups) {
+    if (!items.length) continue;
+    const g = el('div', 'grp');
+    if (name) g.append(el('span', 'tag ' + name.toLowerCase(), name));
+    const ul = el('ul');
+    items.forEach(it => { const li = el('li'); li.append(inline(it)); ul.append(li); });
+    g.append(ul); card.append(g);
+  }
+  return card;
+}
+function renderRelease(r, badge) {
+  const box = el('div', 'rel'), h = el('div', 'rel-head');
+  h.append(el('span', 'v', r.version));
+  if (badge) h.append(el('span', 'badge', badge));
+  if (r.date) h.append(el('span', 'd', r.date));
+  box.append(h, renderGroups(r.groups));
+  return box;
+}
 "#;
 
 const SETTINGS_BODY: &str = r##"<body>
@@ -218,12 +322,6 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .fav+.fav{border-top:1px solid var(--line)}
 .fav .mono{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 input.token{flex:1;font-family:var(--mono);font-size:12px}
-.rel h2 .t3{font-weight:400;margin-left:8px}
-.rel .card{padding:8px 16px 12px;-webkit-user-select:text;cursor:auto}
-.rel h3{font-size:12px;line-height:20px;font-weight:500;color:var(--text-3);margin:4px 0 0}
-.rel ul{margin:0;padding-left:18px}
-.rel li{margin:2px 0}
-.rel code{font-family:var(--mono);font-size:12px;background:var(--raised);border-radius:4px;padding:0 4px}
 footer.status:has(.msg:empty){display:none}
 </style>
 <nav>
@@ -339,26 +437,9 @@ $('#curver').textContent = 'You have version ' + init.version;
 $('#checkupd').onclick = () => send({type: 'check_updates'});
 $('#author').onclick = () => send({type: 'open_author'});
 
-// What's new: inline `code` becomes <code>, [text](url) keeps its text.
-function inline(text) {
-  const f = document.createDocumentFragment();
-  text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').split('`').forEach((part, i) =>
-    f.append(i % 2 ? el('code', null, part) : document.createTextNode(part)));
-  return f;
-}
 for (const r of init.changelog || []) {
-  const box = el('div', 'rel'), h = el('h2', null, r.version === init.version ? r.version + ' (installed)' : r.version);
-  if (r.date) h.append(el('span', 't3', r.date));
-  const card = el('div', 'card');
-  for (const [name, items] of r.groups) {
-    if (!items.length) continue;
-    card.append(el('h3', null, name));
-    const ul = el('ul');
-    items.forEach(it => { const li = el('li'); li.append(inline(it)); ul.append(li); });
-    card.append(ul);
-  }
-  box.append(h, card);
-  $('#newslist').append(box);
+  const badge = r.version === init.version ? 'Installed' : (r.version === 'Unreleased' ? 'Next' : null);
+  $('#newslist').append(renderRelease(r, badge));
 }
 
 document.querySelectorAll('nav button[data-tab]').forEach(b => b.onclick = () => {

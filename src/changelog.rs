@@ -18,56 +18,38 @@ pub fn releases() -> Vec<Release> {
     parse(SOURCE)
 }
 
-/// Release notes (Markdown, as on GitHub) as plain text for a dialog: headings
-/// become labels, list items bullets, and links and code marks are dropped.
-pub fn plain(md: &str) -> String {
-    let mut out: Vec<String> = vec![];
-    for line in md.lines() {
-        let line = line.trim_end();
-        let text = if let Some(h) = line.trim_start_matches('#').strip_prefix(' ')
-            && line.starts_with('#')
-        {
-            format!("{}:", h.trim())
-        } else if let Some(item) = line.trim_start().strip_prefix("- ") {
-            format!("• {item}")
-        } else {
-            line.trim().to_string()
-        };
-        let text = strip_inline(&text);
-        if text.is_empty() && out.last().is_none_or(|l| l.is_empty()) {
+/// Release notes as groups, for the update window. Reads both the Markdown in
+/// CHANGELOG.md (`### Added`, `- item`) and the plain style of GitHub release
+/// notes (`Added:`, `• item`).
+pub fn note_groups(text: &str) -> Vec<(String, Vec<String>)> {
+    let mut groups: Vec<(String, Vec<String>)> = vec![];
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() {
             continue;
         }
-        out.push(text);
-    }
-    while out.last().is_some_and(|l| l.is_empty()) {
-        out.pop();
-    }
-    out.join("\n")
-}
-
-/// `code` → code, [text](url) → text, **bold** → bold.
-fn strip_inline(s: &str) -> String {
-    let mut out = String::new();
-    let mut rest = s;
-    while let Some(i) = rest.find('[') {
-        out.push_str(&rest[..i]);
-        let after = &rest[i + 1..];
-        match after
-            .find("](")
-            .and_then(|j| after[j..].find(')').map(|k| (j, j + k)))
+        let bullet = ["- ", "• ", "* "].iter().find_map(|b| t.strip_prefix(b));
+        if let Some(item) = bullet {
+            if groups.is_empty() {
+                groups.push((String::new(), vec![]));
+            }
+            groups.last_mut().unwrap().1.push(item.trim().to_string());
+        } else if let Some(h) = t.strip_prefix('#') {
+            groups.push((h.trim_start_matches('#').trim().to_string(), vec![]));
+        } else if let Some(h) = t
+            .strip_suffix(':')
+            .filter(|h| !h.contains(' ') || h.len() < 24)
         {
-            Some((j, end)) => {
-                out.push_str(&after[..j]);
-                rest = &after[end + 1..];
-            }
-            None => {
-                out.push('[');
-                rest = after;
-            }
+            groups.push((h.trim_matches('*').to_string(), vec![]));
+        } else if let Some(last) = groups.last_mut().and_then(|g| g.1.last_mut()) {
+            last.push(' ');
+            last.push_str(t);
+        } else {
+            groups.push((String::new(), vec![t.to_string()]));
         }
     }
-    out.push_str(rest);
-    out.replace('`', "").replace("**", "")
+    groups.retain(|(_, items)| !items.is_empty());
+    groups
 }
 
 fn parse(src: &str) -> Vec<Release> {
@@ -128,11 +110,21 @@ mod tests {
     }
 
     #[test]
-    fn notes_become_plain_text() {
-        let md = "### Added\n\n- Show `brew` [docs](https://x.y) **now**\n\n### Fixed\n\n- Blank cards\n";
+    fn note_groups_read_both_styles() {
+        let want = vec![
+            (
+                "Added".to_string(),
+                vec!["One".to_string(), "Two".to_string()],
+            ),
+            ("Fixed".to_string(), vec!["Three".to_string()]),
+        ];
         assert_eq!(
-            plain(md),
-            "Added:\n\n• Show brew docs now\n\nFixed:\n\n• Blank cards"
+            note_groups("### Added\n\n- One\n- Two\n\n### Fixed\n\n- Three\n"),
+            want
+        );
+        assert_eq!(
+            note_groups("Added:\n\n• One  \n• Two  \n\nFixed:\n\n• Three  \n"),
+            want
         );
     }
 

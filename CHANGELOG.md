@@ -7,6 +7,11 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Changed
+
+- New versions are offered in their own window, with the changes grouped under coloured labels, instead of a plain alert.
+- What's new in Settings has the same clearer look: a card per version, coloured labels for Added, Changed and Fixed, and an Installed badge.
+
 ## [0.1.4] - 2026-11-11
 
 ### Added

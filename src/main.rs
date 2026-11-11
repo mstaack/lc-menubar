@@ -43,6 +43,8 @@ enum WinKey {
     Vars(String),
     Logs(String),
     Commands(String),
+    /// The window offering a new version.
+    Update,
 }
 
 enum UserEvent {
@@ -82,6 +84,8 @@ enum UserEvent {
     Warm,
     /// Show a window that has not reported `ready` in time.
     ShowWindow(WinKey),
+    /// Open a window from code that has no event loop target at hand.
+    OpenWindow(WinKey),
 }
 
 #[derive(Clone, Debug)]
@@ -249,7 +253,9 @@ fn main() {
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(1500));
             let _ = proxy.send_event(match which.as_str() {
-                "settings" | "logs" | "commands" | "vars" => UserEvent::DebugWindow(which),
+                "settings" | "logs" | "commands" | "vars" | "update" => {
+                    UserEvent::DebugWindow(which)
+                }
                 _ => UserEvent::DebugPopup(which.parse().ok()),
             });
         });
@@ -356,6 +362,7 @@ fn main() {
                     app.warm = windows::WebWindow::warm(target).ok();
                 }
             }
+            Event::UserEvent(UserEvent::OpenWindow(key)) => app.open(key, target),
             Event::UserEvent(UserEvent::ShowWindow(key)) => {
                 if let Some(w) = app.windows.get(&key) {
                     w.show();
@@ -369,6 +376,30 @@ fn main() {
                     .map(|(_, e)| e.id.clone())
                     .unwrap_or_default();
                 let key = match kind.as_str() {
+                    "update" => {
+                        // A sample release built from this version's changelog.
+                        let notes = changelog::releases()
+                            .into_iter()
+                            .next()
+                            .map(|r| {
+                                r.groups
+                                    .iter()
+                                    .map(|(g, items)| {
+                                        format!("### {g}\n\n- {}\n", items.join("\n- "))
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            })
+                            .unwrap_or_default();
+                        app.update = Some(updater::Release {
+                            version: "9.9.9".into(),
+                            notes,
+                            page: "https://github.com/mstaack/lc-menubar/releases".into(),
+                            zip_url: None,
+                            sha256_url: None,
+                        });
+                        WinKey::Update
+                    }
                     "logs" => WinKey::Logs(env),
                     "commands" => WinKey::Commands(env),
                     "vars" => WinKey::Vars(env),
@@ -701,33 +732,34 @@ impl App {
         }
     }
 
+    /// Offer the update in its own window (notes, Later, Install and restart).
     fn install_update(&mut self) {
+        if self.update.is_some() {
+            let _ = self.proxy.send_event(UserEvent::OpenWindow(WinKey::Update));
+        }
+    }
+
+    fn on_update_window(&mut self, kind: &str, target: &EventLoopWindowTarget<UserEvent>) {
         let Some(release) = self.update.clone() else {
-            return;
+            return self.close_key(&WinKey::Update, target);
         };
-        let notes = model::truncate(&changelog::plain(&release.notes), 600);
-        if !updater::can_install() || release.zip_url.is_none() {
-            // Not in a writable bundle (development build, or no permission):
-            // the release page has the download.
-            if menu_views::confirm(
-                &format!("LC Menubar {} is available", release.version),
-                &format!("{notes}\n\nOpen the release page to download it?"),
-                "Open release page",
-            ) {
-                system::open_url(&release.page);
+        match kind {
+            "page" => system::open_url(&release.page),
+            "install" => {
+                self.close_key(&WinKey::Update, target);
+                if !updater::can_install() || release.zip_url.is_none() {
+                    // Not in a writable bundle (development build, or no
+                    // permission): the release page has the download.
+                    system::open_url(&release.page);
+                } else {
+                    self.start_install(release);
+                }
             }
-            return;
+            _ => {}
         }
-        if !menu_views::confirm(
-            &format!("Update to LC Menubar {}?", release.version),
-            &format!(
-                "You have {}. LC Menubar restarts after the update.\n\n{notes}",
-                updater::CURRENT
-            ),
-            "Install and restart",
-        ) {
-            return;
-        }
+    }
+
+    fn start_install(&mut self, release: updater::Release) {
         self.installing = true;
         self.rerender();
         let proxy = self.proxy.clone();
@@ -922,6 +954,25 @@ impl App {
                     windows::logs_html(&json!({ "title": label })),
                 )
             }
+            WinKey::Update => {
+                let Some(release) = self.update.clone() else {
+                    return;
+                };
+                let icon = charts::app_icon_png(128)
+                    .map(|png| format!("data:image/png;base64,{}", windows::base64(&png)))
+                    .unwrap_or_default();
+                (
+                    "Software Update".to_string(),
+                    (560.0, 520.0),
+                    windows::update_html(&json!({
+                        "version": release.version,
+                        "current": updater::CURRENT,
+                        "groups": changelog::note_groups(&release.notes),
+                        "canInstall": updater::can_install() && release.zip_url.is_some(),
+                        "icon": icon,
+                    })),
+                )
+            }
             WinKey::Commands(env) => {
                 let label = self.env_label(env);
                 let favorites = self.settings().favorite_commands;
@@ -1038,6 +1089,7 @@ impl App {
             WinKey::Vars(env) => self.on_vars(&env, &kind, msg),
             WinKey::Logs(env) => self.on_logs(&env, &kind, msg),
             WinKey::Commands(env) => self.on_commands(&env, &kind, msg),
+            WinKey::Update => self.on_update_window(&kind, target),
         }
     }
 
