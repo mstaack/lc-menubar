@@ -122,7 +122,7 @@ pub type Path = Vec<usize>;
 
 #[cfg(target_os = "macos")]
 pub use imp::{
-    alert, apply, ask, confirm, copy_text, force_appearance, forget_views, is_dark, popup,
+    alert, apply, ask, confirm, copy_text, force_appearance, forget_views, is_dark, popup, prompt,
     render_png, set_range_handler, set_status_icon,
 };
 
@@ -880,6 +880,30 @@ mod imp {
         alert.addButtonWithTitle(&NSString::from_str(ok));
         alert.addButtonWithTitle(&NSString::from_str(cancel));
         alert.runModal() == NSAlertFirstButtonReturn
+    }
+
+    /// Dialog with a text field: the entered text (trimmed), or `None` when
+    /// cancelled or left empty.
+    pub fn prompt(title: &str, message: &str, placeholder: &str, ok: &str) -> Option<String> {
+        use objc2_app_kit::{NSAlert, NSAlertFirstButtonReturn, NSApplication};
+        let mtm = MainThreadMarker::new()?;
+        NSApplication::sharedApplication(mtm).activate();
+        let alert = NSAlert::new(mtm);
+        alert.setMessageText(&NSString::from_str(title));
+        alert.setInformativeText(&NSString::from_str(message));
+        alert.addButtonWithTitle(&NSString::from_str(ok));
+        alert.addButtonWithTitle(&NSString::from_str("Cancel"));
+        let field = NSTextField::textFieldWithString(&NSString::from_str(""), mtm);
+        field.setPlaceholderString(Some(&NSString::from_str(placeholder)));
+        field.setFrame(rect(0.0, 0.0, 260.0, 24.0));
+        alert.setAccessoryView(Some(&field));
+        alert.layout();
+        alert.window().setInitialFirstResponder(Some(&field));
+        if alert.runModal() != NSAlertFirstButtonReturn {
+            return None;
+        }
+        let text = field.stringValue().to_string().trim().to_string();
+        (!text.is_empty()).then_some(text)
     }
 
     pub fn alert(title: &str, message: &str) {

@@ -29,6 +29,14 @@ struct Resource<T> {
 #[derive(Deserialize)]
 struct AppAttrs {
     name: String,
+    #[serde(default)]
+    repository: Option<RepoAttrs>,
+}
+
+#[derive(Deserialize)]
+struct RepoAttrs {
+    #[serde(default)]
+    default_branch: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -373,6 +381,11 @@ impl Client {
                 account: String::new(),
                 org: String::new(),
                 name: app.attributes.name,
+                default_branch: app
+                    .attributes
+                    .repository
+                    .as_ref()
+                    .and_then(|r| r.default_branch.clone()),
                 environments: envs
                     .into_iter()
                     .map(|e| Environment {
@@ -382,6 +395,7 @@ impl Client {
                         domain: e.attributes.vanity_domain.filter(|d| !d.is_empty()),
                         latest: None,
                         metrics: None,
+                        recent_branches: vec![],
                     })
                     .collect(),
             });
@@ -389,11 +403,44 @@ impl Client {
         Ok(out)
     }
 
-    pub async fn latest_deployment(&self, env_id: &str) -> Result<Option<Deployment>> {
+    /// The newest deployment, and the branches of the recent ones (newest first).
+    pub async fn latest_deployment(
+        &self,
+        env_id: &str,
+    ) -> Result<(Option<Deployment>, Vec<String>)> {
         let page: Page<DeployAttrs> = self
             .get(&format!("{BASE}/environments/{env_id}/deployments"))
             .await?;
-        Ok(newest(page.data.into_iter().map(to_deployment).collect()))
+        let deps: Vec<Deployment> = page.data.into_iter().map(to_deployment).collect();
+        let mut by_time: Vec<&Deployment> = deps.iter().collect();
+        by_time.sort_by_key(|d| std::cmp::Reverse(d.started_at.or(d.finished_at)));
+        let mut branches: Vec<String> = vec![];
+        for d in by_time {
+            if !d.branch.is_empty() && !branches.contains(&d.branch) && branches.len() < 8 {
+                branches.push(d.branch.clone());
+            }
+        }
+        Ok((newest(deps), branches))
+    }
+
+    /// Point the environment at another branch (applies to the next deployment).
+    pub async fn set_branch(&self, env_id: &str, branch: &str) -> Result<()> {
+        let url = format!("{BASE}/environments/{env_id}");
+        let resp = self
+            .http
+            .patch(&url)
+            .bearer_auth(&self.token)
+            .header("Accept", "application/json")
+            .json(&serde_json::json!({ "branch": branch }))
+            .send()
+            .await
+            .with_context(|| format!("PATCH {url}"))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            bail!("{status}: {}", api_error(&text));
+        }
+        Ok(())
     }
 
     pub async fn metrics(&self, env_id: &str, period: Period) -> Result<Metrics> {

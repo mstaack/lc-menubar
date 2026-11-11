@@ -12,7 +12,7 @@ chrono = { version = "0.4.45", features = ["serde"] }
 dirs = "7.0.0"
 keyring = { version = "3", features = ["apple-native"] }
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSMenu", "NSMenuItem", "NSView", "NSImageView", "NSImage", "NSTextField", "NSControl", "NSFont", "NSColor", "NSResponder", "NSText", "NSAttributedString", "NSFontDescriptor", "NSCell", "NSImageCell", "NSGraphics", "NSAppearance", "NSApplication", "NSBox", "NSParagraphStyle", "NSBitmapImageRep", "NSImageRep", "NSTextAttachment", "NSSegmentedControl", "NSSegmentedCell", "NSActionCell", "NSLayoutConstraint", "NSAlert", "NSPasteboard", "NSRunningApplication", "NSStatusItem", "NSStatusBarButton", "NSButton"] }
+objc2-app-kit = { version = "0.3", features = ["NSMenu", "NSMenuItem", "NSView", "NSImageView", "NSImage", "NSTextField", "NSControl", "NSFont", "NSColor", "NSResponder", "NSText", "NSAttributedString", "NSFontDescriptor", "NSCell", "NSImageCell", "NSGraphics", "NSAppearance", "NSApplication", "NSBox", "NSParagraphStyle", "NSBitmapImageRep", "NSImageRep", "NSTextAttachment", "NSSegmentedControl", "NSSegmentedCell", "NSActionCell", "NSLayoutConstraint", "NSAlert", "NSPasteboard", "NSRunningApplication", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSWindow"] }
 objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSGeometry", "NSAttributedString", "NSDictionary", "NSArray", "NSObject"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "http2"] }
 serde = { version = "1.0.229", features = ["derive"] }

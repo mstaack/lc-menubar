@@ -87,6 +87,8 @@ enum UserEvent {
 #[derive(Clone, Debug)]
 enum EnvAction {
     Deploy,
+    /// Point the environment at a branch and deploy it (`None`: ask for a name).
+    SwitchBranch(Option<String>),
     Start,
     Stop,
     Purge,
@@ -740,11 +742,42 @@ impl App {
 
     fn env_action(&self, env_id: String, action: EnvAction) {
         let label = self.env_label(&env_id);
-        let client = match self.client_for(&env_id) {
-            Ok(c) => c,
-            Err(e) => return menu_views::alert("LC Menubar", &e),
+        // Switching asks for the branch first (when not picked from the menu).
+        let action = match action {
+            EnvAction::SwitchBranch(None) => {
+                let Some(branch) = menu_views::prompt(
+                    "Switch branch",
+                    &format!("Which branch should {label} deploy?"),
+                    "branch name",
+                    "Continue",
+                ) else {
+                    return;
+                };
+                EnvAction::SwitchBranch(Some(branch))
+            }
+            other => other,
         };
-        let (title, question, button, done) = match action {
+        let from = self
+            .snapshot
+            .all_environments()
+            .find(|(_, e)| e.id == env_id)
+            .and_then(|(_, e)| e.latest.as_ref())
+            .map(|d| d.branch.clone())
+            .unwrap_or_default();
+        let (title, question, button, done) = match &action {
+            EnvAction::SwitchBranch(branch) => {
+                let branch = branch.clone().unwrap_or_default();
+                (
+                    "Switch branch",
+                    if from.is_empty() {
+                        format!("Switch {label} to {branch} and deploy it?")
+                    } else {
+                        format!("Switch {label} from {from} to {branch} and deploy it?")
+                    },
+                    "Switch and deploy",
+                    "Deployment started",
+                )
+            }
             EnvAction::Deploy => {
                 let current = self
                     .snapshot
@@ -790,10 +823,24 @@ impl App {
         if !menu_views::confirm(title, &question, button) {
             return;
         }
+        let client = match self.client_for(&env_id) {
+            Ok(c) => c,
+            Err(e) => return menu_views::alert("LC Menubar", &e),
+        };
         let poller = self.poller.clone();
         self.jobs.spawn(async move {
             let result = match action {
                 EnvAction::Deploy => client.deploy(&env_id).await,
+                EnvAction::SwitchBranch(branch) => {
+                    let branch = branch.unwrap_or_default();
+                    match client.set_branch(&env_id, &branch).await {
+                        Ok(()) => client
+                            .deploy(&env_id)
+                            .await
+                            .map(|m| format!("Switched to {branch}. {m}")),
+                        Err(e) => Err(e),
+                    }
+                }
                 EnvAction::Start => client
                     .start_environment(&env_id)
                     .await
@@ -1072,6 +1119,20 @@ impl App {
             }
             "removeAccount" => {
                 let id = msg["id"].as_str().unwrap_or_default().to_string();
+                let name = self
+                    .settings()
+                    .accounts
+                    .iter()
+                    .find(|a| a.id == id)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_else(|| "this organization".into());
+                if !menu_views::confirm(
+                    &format!("Remove {name}?"),
+                    "Its API token is deleted from the Keychain and its projects leave the menu. You can connect it again with a new token.",
+                    "Remove",
+                ) {
+                    return;
+                }
                 if let Err(e) = system::delete_token(&id) {
                     return self.settings_toast(&format!("Keychain: {e}"), true);
                 }
@@ -1961,6 +2022,38 @@ fn build_menu(
                 },
                 None,
             ));
+            // Switch branch & deploy: recent branches of the project, or any other.
+            let current = env
+                .latest
+                .as_ref()
+                .map(|d| d.branch.clone())
+                .unwrap_or_default();
+            let branch_menu = Submenu::new("Switch branch", !building);
+            let choices = app.branch_choices();
+            for branch in &choices {
+                let is_current = *branch == current;
+                let _ = branch_menu.append(&b.item(
+                    &if is_current {
+                        format!("{branch} (current)")
+                    } else {
+                        branch.clone()
+                    },
+                    (!is_current).then(|| Action::Env {
+                        env_id: id.clone(),
+                        action: EnvAction::SwitchBranch(Some(branch.clone())),
+                    }),
+                    None,
+                ));
+            }
+            if !choices.is_empty() {
+                let _ = branch_menu.append(&PredefinedMenuItem::separator());
+            }
+            let _ = branch_menu.append(&b.item(
+                "Other branch…",
+                env_act(EnvAction::SwitchBranch(None)),
+                None,
+            ));
+            let _ = sub.append(&branch_menu);
             let _ = sub.append(&b.item(
                 "Logs…",
                 Some(Action::Window(WinKey::Logs(id.clone()))),
@@ -2217,6 +2310,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
         name: name.into(),
         status: "running".into(),
         domain: Some(format!("{name}.example.laravel.cloud")),
+        recent_branches: vec![d.branch.clone(), "release/2.4".into()],
         latest: Some(d),
         metrics: m,
     };
@@ -2235,6 +2329,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                 account: "demo".into(),
                 org: "Northwind".into(),
                 name: "storefront".into(),
+                default_branch: Some("main".into()),
                 environments: vec![
                     env(
                         "e1",
@@ -2265,6 +2360,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                 account: "demo".into(),
                 org: "Northwind".into(),
                 name: "admin-api".into(),
+                default_branch: None,
                 environments: vec![env(
                     "e3",
                     "production",
@@ -2277,6 +2373,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                 account: "demo2".into(),
                 org: "Acme".into(),
                 name: "marketing-site".into(),
+                default_branch: None,
                 environments: vec![env(
                     "e4",
                     "production",
@@ -2384,6 +2481,7 @@ fn preview_cards(dir: &str) {
             finished_at: Some(Utc::now() - chrono::Duration::minutes(12)),
         }),
         metrics: None,
+        recent_branches: vec![],
     };
     let mut cards = vec![deployment_card(&env, Utc::now())];
     cards.extend(metric_cards(&m, Period::H1));

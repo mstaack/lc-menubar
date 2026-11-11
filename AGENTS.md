@@ -34,7 +34,7 @@ CI (`.github/workflows/ci.yml`) runs fmt, clippy with `-D warnings` and tests on
 
 ## Rules
 
-- Every write action against Laravel Cloud (deploy, stop, purge, env var save, commands) must ask for confirmation first.
+- Every action that changes something must ask for confirmation first: writes to Laravel Cloud (deploy, switch branch, start/stop, purge, env var save, commands), installing an update, and removing an organization (deletes its token). Use `menu_views::confirm`, with the destructive button first.
 - API tokens only go in the Keychain, never in settings files or logs. `LARAVEL_CLOUD_TOKEN` in the env adds an extra organization for development.
 - Keep `--demo` working for any new UI; extend `demo_snapshot` in `src/main.rs` when adding data.
 - **Every fix and feature gets a `CHANGELOG.md` entry** under `Unreleased` (`### Added`, `### Changed`, `### Fixed`), in the same commit. Write it for users: one plain sentence, what changed, no internals. The changelog is embedded in the app (Settings › What's new, `src/changelog.rs`) and becomes the GitHub release notes. CI fails when `src/`, `Cargo.toml` or `packaging/` change without it; only purely internal changes (refactors, tests, CI) may use `[skip changelog]` in the commit message. A test fails if the version in `Cargo.toml` has no changelog section.

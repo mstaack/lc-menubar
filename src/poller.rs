@@ -345,11 +345,18 @@ impl Poller {
             }
         }
 
+        let previous_branches: HashMap<String, Vec<String>> = self
+            .last
+            .all_environments()
+            .map(|(_, e)| (e.id.clone(), e.recent_branches.clone()))
+            .collect();
         let mut latest = HashMap::new();
+        let mut branches: HashMap<String, Vec<String>> = HashMap::new();
         let mut error = None;
         while let Some(res) = deploys.join_next().await {
             match res {
-                Ok((id, Ok(d))) => {
+                Ok((id, Ok((d, b)))) => {
+                    branches.insert(id.clone(), b);
                     latest.insert(id, d);
                 }
                 Ok((id, Err(e))) => {
@@ -376,6 +383,10 @@ impl Poller {
             env.latest = latest
                 .remove(&env.id)
                 .unwrap_or_else(|| previous.get(&env.id).cloned());
+            env.recent_branches = branches
+                .remove(&env.id)
+                .or_else(|| previous_branches.get(&env.id).cloned())
+                .unwrap_or_default();
             env.metrics = settings
                 .metrics_enabled
                 .then(|| {

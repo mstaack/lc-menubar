@@ -97,6 +97,8 @@ pub struct Environment {
     pub domain: Option<String>,
     pub latest: Option<Deployment>,
     pub metrics: Option<Metrics>,
+    /// Branches of recent deployments, newest first (offered when switching branch).
+    pub recent_branches: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,7 +109,28 @@ pub struct Application {
     pub account: String,
     pub org: String,
     pub name: String,
+    /// The repository's default branch, when Laravel Cloud reports one.
+    pub default_branch: Option<String>,
     pub environments: Vec<Environment>,
+}
+
+impl Application {
+    /// Branches to offer when switching an environment: the default branch, then
+    /// branches any of the project's environments deployed recently.
+    pub fn branch_choices(&self) -> Vec<String> {
+        let mut out: Vec<String> = vec![];
+        let all = self.default_branch.iter().chain(
+            self.environments
+                .iter()
+                .flat_map(|e| e.recent_branches.iter()),
+        );
+        for b in all {
+            if !b.is_empty() && !out.contains(b) {
+                out.push(b.clone());
+            }
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -385,6 +408,31 @@ pub fn wrap(s: &str, width: usize, max_lines: usize) -> Vec<String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn branch_choices_start_with_default_and_have_no_duplicates() {
+        let env = |branches: &[&str]| Environment {
+            id: String::new(),
+            name: String::new(),
+            status: String::new(),
+            domain: None,
+            latest: None,
+            metrics: None,
+            recent_branches: branches.iter().map(|b| b.to_string()).collect(),
+        };
+        let app = Application {
+            id: "a".into(),
+            account: "x".into(),
+            org: "Org".into(),
+            name: "app".into(),
+            default_branch: Some("main".into()),
+            environments: vec![
+                env(&["develop", "main"]),
+                env(&["feature/x", "develop", ""]),
+            ],
+        };
+        assert_eq!(app.branch_choices(), ["main", "develop", "feature/x"]);
+    }
+
     fn dep(id: &str, status: &str) -> Deployment {
         Deployment {
             id: id.into(),
@@ -406,6 +454,7 @@ mod tests {
                 account: "a".into(),
                 org: "Org".into(),
                 name: "Shop".into(),
+                default_branch: None,
                 environments: deps
                     .iter()
                     .map(|(env, d)| Environment {
@@ -415,6 +464,7 @@ mod tests {
                         domain: None,
                         latest: d.clone(),
                         metrics: None,
+                        recent_branches: vec![],
                     })
                     .collect(),
             }],

@@ -7,6 +7,14 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Added
+
+- Switch branch in each environment's menu: pick one of the project's recent branches, or type another, and LC Menubar switches the environment to it and deploys.
+
+### Changed
+
+- Removing an organization in Settings asks first, like every other action that changes something.
+
 ## [0.1.3] - 2026-11-11
 
 ### Changed
