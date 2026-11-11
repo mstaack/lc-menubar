@@ -7,6 +7,13 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-11
+
+### Changed
+
+- Check for updates in Settings offers to install a new version right away, instead of pointing to the menu.
+- Release notes are written as plain text, so the update dialog of every version shows them cleanly.
+
 ## [0.1.2] - 2026-11-11
 
 ### Changed
@@ -50,7 +57,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.3
 [0.1.2]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.1
 [0.1.0]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.0

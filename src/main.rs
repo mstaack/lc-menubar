@@ -673,16 +673,20 @@ impl App {
     ) {
         match result {
             Ok(found) => {
-                if manual {
-                    let text = match &found {
-                        Some(r) => format!("LC Menubar {} is available, see the menu", r.version),
-                        None => format!("LC Menubar {} is up to date", updater::CURRENT),
-                    };
-                    self.settings_toast(&text, false);
+                if manual && found.is_none() {
+                    self.settings_toast(
+                        &format!("LC Menubar {} is up to date", updater::CURRENT),
+                        false,
+                    );
                 }
                 if found != self.update {
-                    self.update = found;
+                    self.update = found.clone();
                     self.rerender();
+                }
+                // Checked from Settings: offer the install right away.
+                if manual && let Some(r) = found {
+                    self.settings_toast(&format!("LC Menubar {} is available", r.version), false);
+                    self.install_update();
                 }
             }
             Err(e) => {
