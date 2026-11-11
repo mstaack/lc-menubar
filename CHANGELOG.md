@@ -13,7 +13,7 @@ What's new page in Settings, are taken from this file.
 
 ### Fixed
 
-- The latest deployment could be stuck on an old attempt that never started (such as "deployments are disabled"), even after later deploys succeeded.
+- An environment could keep showing an old cancelled deployment (such as "Deployments are temporarily disabled while Laravel Cloud performs security maintenance") instead of its latest deploy.
 - Release notes in the update dialog show as plain text instead of Markdown.
 
 ## [0.1.1] - 2026-11-11
