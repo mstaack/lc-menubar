@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Code changes come with a CHANGELOG.md entry
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then echo "No base to compare"; exit 0; fi
+          files=$(git diff --name-only "$BASE" "$HEAD")
+          if ! echo "$files" | grep -qE '^(src/|Cargo\.toml|packaging/)'; then echo "No app changes"; exit 0; fi
+          if echo "$files" | grep -qx 'CHANGELOG.md'; then echo "Changelog updated"; exit 0; fi
+          if git log --format=%B "$BASE..$HEAD" | grep -qi '\[skip changelog\]'; then echo "Skipped by commit message"; exit 0; fi
+          echo "::error::App code changed without a CHANGELOG.md entry. Add one under Unreleased (or put [skip changelog] in a commit message for internal-only changes)."
+          exit 1
+
+  check:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+
+  bundle:
+    runs-on: macos-15
+    needs: check
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Build the app bundle (this Mac's architecture, ad-hoc signed)
+        run: UNIVERSAL=0 scripts/bundle.sh
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: lc-menubar-app
+          path: dist/*.zip
+          retention-days: 7
