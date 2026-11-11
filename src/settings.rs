@@ -25,6 +25,9 @@ pub struct Settings {
     pub show_replicas_in_menu: bool,
     /// Environment ids that are hidden from the menu, light and notifications.
     pub hidden_envs: HashSet<String>,
+    /// Application (project) ids hidden with all their environments, also ones
+    /// added later.
+    pub hidden_apps: HashSet<String>,
     pub show_spend: bool,
     pub show_spend_in_menu_bar: bool,
     /// Connected organizations; tokens live in the Keychain under each id.
@@ -43,6 +46,25 @@ pub struct Account {
     pub name: String,
 }
 
+impl Settings {
+    pub fn is_hidden(
+        &self,
+        app: &crate::model::Application,
+        env: &crate::model::Environment,
+    ) -> bool {
+        self.hidden_apps.contains(&app.id) || self.hidden_envs.contains(&env.id)
+    }
+
+    /// Ids of every hidden environment in `apps`: hidden by itself or by its project.
+    pub fn hidden_in(&self, apps: &[crate::model::Application]) -> HashSet<String> {
+        apps.iter()
+            .flat_map(|a| a.environments.iter().map(move |e| (a, e)))
+            .filter(|(a, e)| self.is_hidden(a, e))
+            .map(|(_, e)| e.id.clone())
+            .collect()
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -57,6 +79,7 @@ impl Default for Settings {
             show_cpu_in_menu: true,
             show_replicas_in_menu: true,
             hidden_envs: HashSet::new(),
+            hidden_apps: HashSet::new(),
             show_spend: true,
             show_spend_in_menu_bar: false,
             accounts: vec![],
@@ -203,6 +226,43 @@ pub fn login_item_installed() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hiding_a_project_hides_all_its_environments() {
+        use crate::model::{Application, Environment};
+        let env = |id: &str| Environment {
+            id: id.into(),
+            name: id.into(),
+            status: "running".into(),
+            domain: None,
+            latest: None,
+            metrics: None,
+        };
+        let apps = vec![
+            Application {
+                id: "a1".into(),
+                account: "x".into(),
+                org: "Org".into(),
+                name: "one".into(),
+                environments: vec![env("e1"), env("e2")],
+            },
+            Application {
+                id: "a2".into(),
+                account: "x".into(),
+                org: "Org".into(),
+                name: "two".into(),
+                environments: vec![env("e3"), env("e4")],
+            },
+        ];
+        let s = Settings {
+            hidden_apps: ["a1".to_string()].into(),
+            hidden_envs: ["e4".to_string()].into(),
+            ..Settings::default()
+        };
+        let mut hidden: Vec<_> = s.hidden_in(&apps).into_iter().collect();
+        hidden.sort();
+        assert_eq!(hidden, ["e1", "e2", "e4"]);
+    }
 
     #[test]
     fn partial_json_falls_back_to_defaults() {

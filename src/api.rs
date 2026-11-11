@@ -359,6 +359,7 @@ impl Client {
                 .get_all::<EnvAttrs>(&format!("/applications/{}/environments", app.id))
                 .await?;
             out.push(Application {
+                id: app.id.clone(),
                 account: String::new(),
                 org: String::new(),
                 name: app.attributes.name,

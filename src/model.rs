@@ -101,6 +101,8 @@ pub struct Environment {
 
 #[derive(Debug, Clone)]
 pub struct Application {
+    /// Laravel Cloud application id.
+    pub id: String,
     /// Local account (organization) id this app was loaded with.
     pub account: String,
     pub org: String,
@@ -400,6 +402,7 @@ mod tests {
     fn snap(deps: &[(&str, Option<Deployment>)]) -> Snapshot {
         Snapshot {
             apps: vec![Application {
+                id: "app".into(),
                 account: "a".into(),
                 org: "Org".into(),
                 name: "Shop".into(),

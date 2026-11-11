@@ -78,6 +78,10 @@ enum UserEvent {
     /// An update was installed; quit so the new version can start.
     UpdateInstalled(std::path::PathBuf),
     UpdateFailed(String),
+    /// Create the hidden warm-up web view.
+    Warm,
+    /// Show a window that has not reported `ready` in time.
+    ShowWindow(WinKey),
 }
 
 #[derive(Clone, Debug)]
@@ -119,6 +123,10 @@ struct App {
     /// can be applied in place.
     layout: Vec<String>,
     demo: bool,
+    /// Hidden web view that keeps WebKit warm (see `WebWindow::warm`).
+    warm: Option<windows::WebWindow>,
+    /// When the last window started opening (`LCM_TIMING`).
+    window_opened_at: Option<std::time::Instant>,
     /// Account ids behind the organization switch segments (index 0 = all).
     org_ids: Vec<Option<String>>,
     /// A newer release, offered at the bottom of the menu.
@@ -200,6 +208,8 @@ fn main() {
         menu: None,
         layout: vec![],
         demo,
+        window_opened_at: None,
+        warm: None,
         org_ids: vec![],
         update: None,
         installing: false,
@@ -221,6 +231,14 @@ fn main() {
                 let _ = proxy.send_event(UserEvent::SetPeriod(p));
                 std::thread::sleep(std::time::Duration::from_millis(800));
             }
+        });
+    }
+    {
+        // Warm WebKit up once the menu bar item is in place.
+        let proxy = event_loop.create_proxy();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            let _ = proxy.send_event(UserEvent::Warm);
         });
     }
     if let Ok(which) = std::env::var("LCM_POPUP") {
@@ -271,6 +289,7 @@ fn main() {
             }
             Event::UserEvent(UserEvent::Snapshot(s)) => {
                 app.snapshot = s;
+                app.snapshot.hidden = app.settings().hidden_in(&app.snapshot.apps);
                 app.loading = false;
                 app.sync_account_names();
                 app.rerender();
@@ -329,6 +348,16 @@ fn main() {
                     menu_views::popup(menu.ns_menu(), &path, 1200.0, 1000.0);
                 }
                 let _ = row;
+            }
+            Event::UserEvent(UserEvent::Warm) => {
+                if app.warm.is_none() {
+                    app.warm = windows::WebWindow::warm(target).ok();
+                }
+            }
+            Event::UserEvent(UserEvent::ShowWindow(key)) => {
+                if let Some(w) = app.windows.get(&key) {
+                    w.show();
+                }
             }
             Event::UserEvent(UserEvent::DebugWindow(kind)) => {
                 let env = app
@@ -549,6 +578,7 @@ impl App {
         }
         if self.demo {
             self.snapshot = demo_snapshot(p);
+            self.snapshot.hidden = self.settings().hidden_in(&self.snapshot.apps);
         } else {
             let _ = self.poller.send(Command::SettingsChanged);
         }
@@ -813,7 +843,7 @@ impl App {
 
     fn open(&mut self, key: WinKey, target: &EventLoopWindowTarget<UserEvent>) {
         if let Some(w) = self.windows.get(&key) {
-            w.window.set_focus();
+            w.show();
             return;
         }
         let (title, size, html) = match &key {
@@ -853,6 +883,8 @@ impl App {
         };
         let proxy = self.proxy.clone();
         let ipc_key = key.clone();
+        let t_open = std::time::Instant::now();
+        self.window_opened_at = Some(t_open);
         match WebWindow::open(target, &title, size, html, move |msg| {
             let _ = proxy.send_event(UserEvent::Ipc {
                 key: ipc_key.clone(),
@@ -860,7 +892,20 @@ impl App {
             });
         }) {
             Ok(w) => {
+                if std::env::var_os("LCM_TIMING").is_some() {
+                    eprintln!(
+                        "window {key:?}: created in {:.1} ms",
+                        t_open.elapsed().as_secs_f64() * 1000.0
+                    );
+                }
                 self.windows.insert(key.clone(), w);
+                // Fallback in case the page never reports `ready`.
+                let proxy = self.proxy.clone();
+                let show_key = key.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
+                    let _ = proxy.send_event(UserEvent::ShowWindow(show_key));
+                });
                 match &key {
                     WinKey::Vars(env) => self.load_vars(env),
                     WinKey::Commands(env) => self.load_history(env),
@@ -884,7 +929,7 @@ impl App {
         let envs: Vec<Value> = self
             .snapshot
             .all_environments()
-            .map(|(a, e)| json!({ "id": e.id, "app": a.name, "org": a.org, "name": e.name }))
+            .map(|(a, e)| json!({ "id": e.id, "appId": a.id, "app": a.name, "org": a.org, "name": e.name }))
             .collect();
         json!({
             "settings": s,
@@ -921,6 +966,21 @@ impl App {
             .to_string();
         if kind == "close" {
             return self.close_key(&key, target);
+        }
+        if kind == "ready" {
+            if let Some(w) = self.windows.get(&key) {
+                w.show();
+            }
+            if let (Some(t), true) = (
+                self.window_opened_at.take(),
+                std::env::var_os("LCM_TIMING").is_some(),
+            ) {
+                eprintln!(
+                    "window {key:?}: page ready after {:.1} ms",
+                    t.elapsed().as_secs_f64() * 1000.0
+                );
+            }
+            return;
         }
         match key.clone() {
             WinKey::Settings => self.on_settings(&kind, msg),
@@ -966,6 +1026,8 @@ impl App {
                     Ok(()) => self.settings_toast("Saved", false),
                     Err(e) => self.settings_toast(&format!("Could not save settings: {e}"), true),
                 }
+                // Apply hidden projects and environments at once, before the next poll.
+                self.snapshot.hidden = new.hidden_in(&self.snapshot.apps);
                 let _ = self.poller.send(Command::SettingsChanged);
                 self.rerender();
             }
@@ -1411,6 +1473,10 @@ impl Built {
     /// Install card views and row styles on the native items that are shown.
     /// Must run after every submenu has been attached to the menu.
     fn attach_cards(&self) {
+        // A new menu gets new views: views still held by the previous menu's
+        // items come up blank when moved over.
+        #[cfg(target_os = "macos")]
+        menu_views::forget_views();
         #[cfg(target_os = "macos")]
         menu_views::apply(self.menu.ns_menu(), &self.cards, &self.rows, &self.hidden);
     }
@@ -2161,6 +2227,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
     Snapshot {
         apps: vec![
             Application {
+                id: "app1".into(),
                 account: "demo".into(),
                 org: "Northwind".into(),
                 name: "storefront".into(),
@@ -2190,6 +2257,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                 ],
             },
             Application {
+                id: "app2".into(),
                 account: "demo".into(),
                 org: "Northwind".into(),
                 name: "admin-api".into(),
@@ -2201,6 +2269,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                 )],
             },
             Application {
+                id: "app3".into(),
                 account: "demo2".into(),
                 org: "Acme".into(),
                 name: "marketing-site".into(),

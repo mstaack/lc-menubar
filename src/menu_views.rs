@@ -122,8 +122,8 @@ pub type Path = Vec<usize>;
 
 #[cfg(target_os = "macos")]
 pub use imp::{
-    alert, apply, ask, confirm, copy_text, force_appearance, is_dark, popup, render_png,
-    set_range_handler, set_status_icon,
+    alert, apply, ask, confirm, copy_text, force_appearance, forget_views, is_dark, popup,
+    render_png, set_range_handler, set_status_icon,
 };
 
 #[cfg(not(target_os = "macos"))]
@@ -771,6 +771,11 @@ mod imp {
             menu = menu.itemAtIndex(i as isize)?.submenu()?;
         }
         menu.itemAtIndex(last as isize)
+    }
+
+    /// Drop the views kept for reuse, before building a new menu.
+    pub fn forget_views() {
+        VIEW_CACHE.with(|c| c.borrow_mut().clear());
     }
 
     /// Install card views and row styles on the menu shown by the status item.

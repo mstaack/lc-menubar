@@ -106,7 +106,7 @@ impl Poller {
                 } else {
                     self.last.clone()
                 };
-                snap.hidden = settings.hidden_envs.clone();
+                snap.hidden = settings.hidden_in(&snap.apps);
                 self.last = snap.clone();
                 let normal = Duration::from_secs(settings.refresh_secs);
                 let wait = if snap.error.is_some() || !snap.org_errors.is_empty() {
@@ -184,7 +184,7 @@ impl Poller {
 
     fn publish_metrics(&mut self, s: &Settings, on_snapshot: &impl Fn(Snapshot)) {
         let mut snap = self.with_cached_metrics(s, self.last.clone());
-        snap.hidden = s.hidden_envs.clone();
+        snap.hidden = s.hidden_in(&snap.apps);
         self.last = snap.clone();
         on_snapshot(snap);
     }
@@ -201,7 +201,7 @@ impl Poller {
             .collect();
         let mut jobs = tokio::task::JoinSet::new();
         for (app, env) in self.last.all_environments() {
-            if s.hidden_envs.contains(&env.id) {
+            if s.is_hidden(app, env) {
                 continue;
             }
             let fresh = self
@@ -232,7 +232,7 @@ impl Poller {
             return;
         }
         let mut visible = snap.clone();
-        visible.hidden = settings.hidden_envs.clone();
+        visible.hidden = settings.hidden_in(&snap.apps);
         for n in model::notices(self.prev_index.as_ref(), &visible) {
             let wanted = match n.phase {
                 Phase::Building => settings.notify_started,
@@ -321,7 +321,7 @@ impl Poller {
         let visible: Vec<(String, Client)> = apps
             .iter()
             .flat_map(|a| a.environments.iter().map(move |e| (a, e)))
-            .filter(|(_, e)| !settings.hidden_envs.contains(&e.id))
+            .filter(|(a, e)| !settings.is_hidden(a, e))
             .filter_map(|(a, e)| clients.get(&a.account).map(|c| (e.id.clone(), c.clone())))
             .collect();
 

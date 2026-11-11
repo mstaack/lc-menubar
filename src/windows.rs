@@ -25,10 +25,13 @@ impl WebWindow {
         html: String,
         on_message: impl Fn(String) + 'static,
     ) -> Result<Self> {
+        // Hidden until the page reports `ready` (see `show`), so it never shows
+        // an empty frame while WebKit loads.
         let window = WindowBuilder::new()
             .with_title(title)
             .with_inner_size(LogicalSize::new(size.0, size.1))
             .with_min_inner_size(LogicalSize::new(560.0, 420.0))
+            .with_visible(false)
             .build(target)?;
         let webview = WebViewBuilder::new()
             .with_html(html)
@@ -37,8 +40,26 @@ impl WebWindow {
             .with_navigation_handler(|url| url.starts_with("about:") || url.starts_with("data:"))
             .with_ipc_handler(move |req| on_message(req.into_body()))
             .build(&window)?;
-        window.set_focus();
         Ok(Self { window, webview })
+    }
+
+    /// A hidden, minimal web view created at launch: it starts WebKit's helper
+    /// processes, so the first real window opens without a cold start.
+    pub fn warm<T: 'static>(target: &EventLoopWindowTarget<T>) -> Result<Self> {
+        let window = WindowBuilder::new()
+            .with_visible(false)
+            .with_inner_size(LogicalSize::new(10.0, 10.0))
+            .build(target)?;
+        let webview = WebViewBuilder::new()
+            .with_html("<!doctype html><html><body></body></html>")
+            .with_navigation_handler(|url| url.starts_with("about:") || url.starts_with("data:"))
+            .build(&window)?;
+        Ok(Self { window, webview })
+    }
+
+    pub fn show(&self) {
+        self.window.set_visible(true);
+        self.window.set_focus();
     }
 
     pub fn id(&self) -> WindowId {
@@ -165,6 +186,8 @@ const send = m => window.ipc.postMessage(JSON.stringify(m));
 const $ = q => document.querySelector(q);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 document.addEventListener('keydown', e => { if (e.metaKey && e.key === 'w') { e.preventDefault(); send({type: 'close'}); } });
+// After the page's script has built it (a microtask: hidden views throttle timers).
+queueMicrotask(() => send({type: 'ready'}));
 "#;
 
 const SETTINGS_BODY: &str = r##"<body>
@@ -185,6 +208,12 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .envapp{padding:12px 16px 4px;color:var(--text-3);font-size:12px}
 .envrow{display:flex;align-items:center;gap:12px;min-height:40px;padding:4px 16px}
 .envrow .grow{flex:1}
+.project+.project{margin-top:12px}
+.project .row .name{font-weight:500}
+.project .row .hint{display:block}
+.project .envrow{padding-left:28px;border-top:1px solid var(--line)}
+.envrow.off{color:var(--text-3)}
+.switch:disabled{opacity:.4}
 .fav{display:flex;align-items:center;gap:8px;min-height:40px;padding:4px 8px 4px 16px}
 .fav+.fav{border-top:1px solid var(--line)}
 .fav .mono{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -203,7 +232,7 @@ footer.status:has(.msg:empty){display:none}
   <button data-tab="orgs">Organizations</button>
   <button data-tab="notify">Notifications</button>
   <button data-tab="menu">Menu and metrics</button>
-  <button data-tab="envs">Environments</button>
+  <button data-tab="envs">Projects</button>
   <button data-tab="commands">Commands</button>
   <button data-tab="news">What's new</button>
   <div class="ver" id="ver"></div>
@@ -277,10 +306,10 @@ footer.status:has(.msg:empty){display:none}
   </section>
 
   <section id="envs">
-    <h1>Environments</h1>
-    <p class="lead">Hidden environments are not checked, not shown and do not change the status dot</p>
+    <h1>Projects</h1>
+    <p class="lead">Hidden projects and environments are not checked, not shown and do not change the status dot</p>
     <h2>Visible in the menu</h2>
-    <div class="card" id="envlist"></div>
+    <div id="envlist"></div>
   </section>
 
   <section id="commands">
@@ -364,17 +393,34 @@ function renderOrgs() {
 $('#addorg').onclick = () => { const v = $('#token').value.trim(); if (!v) return toast('Paste a token first', true); send({type: 'addAccount', token: v}); $('#token').value = ''; };
 $('#token').onkeydown = e => { if (e.key === 'Enter') $('#addorg').click(); };
 
+function toggle(list, id, show) {
+  const h = new Set(s[list] || []); show ? h.delete(id) : h.add(id); s[list] = [...h];
+}
 function renderEnvs() {
   const box = $('#envlist'); box.innerHTML = '';
-  if (!init.envs.length) { box.append(el('div', 'empty', 'Environments appear here once LC Menubar has loaded them')); return; }
-  const hidden = new Set(s.hidden_envs); let group = null;
+  if (!init.envs.length) { const c = el('div', 'card'); c.append(el('div', 'empty', 'Projects appear here once LC Menubar has loaded them')); box.append(c); return; }
+  const hiddenEnvs = new Set(s.hidden_envs), hiddenApps = new Set(s.hidden_apps || []);
+  const apps = [];
   for (const e of init.envs) {
-    const g = e.org && init.accounts.length > 1 ? `${e.app} · ${e.org}` : e.app;
-    if (g !== group) { group = g; box.append(el('div', 'envapp', g)); }
-    const r = el('div', 'envrow'); const name = el('span', 'grow', e.name);
-    const cb = el('input', 'switch'); cb.type = 'checkbox'; cb.checked = !hidden.has(e.id);
-    cb.onchange = () => { const h = new Set(s.hidden_envs); cb.checked ? h.delete(e.id) : h.add(e.id); s.hidden_envs = [...h]; save(); };
-    r.append(name, cb); box.append(r);
+    let a = apps.find(x => x.id === e.appId);
+    if (!a) apps.push(a = {id: e.appId, name: e.app, org: e.org, envs: []});
+    a.envs.push(e);
+  }
+  for (const a of apps) {
+    const card = el('div', 'card project'), shown = !hiddenApps.has(a.id);
+    const head = el('div', 'row'); const g = el('div', 'grow');
+    g.append(el('span', 'name', a.name));
+    if (a.org && init.accounts.length > 1) g.append(el('span', 'hint', a.org));
+    const cb = el('input', 'switch'); cb.type = 'checkbox'; cb.checked = shown;
+    cb.onchange = () => { toggle('hidden_apps', a.id, cb.checked); save(); renderEnvs(); };
+    head.append(g, cb); card.append(head);
+    for (const e of a.envs) {
+      const r = el('div', 'envrow' + (shown ? '' : ' off')); const name = el('span', 'grow', e.name);
+      const ecb = el('input', 'switch'); ecb.type = 'checkbox'; ecb.checked = !hiddenEnvs.has(e.id); ecb.disabled = !shown;
+      ecb.onchange = () => { toggle('hidden_envs', e.id, ecb.checked); save(); };
+      r.append(name, ecb); card.append(r);
+    }
+    box.append(card);
   }
 }
 

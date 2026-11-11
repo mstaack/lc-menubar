@@ -7,6 +7,18 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Added
+
+- Show or hide whole projects in Settings › Projects. A hidden project's environments stay hidden, including ones added later.
+
+### Changed
+
+- Settings and the other windows open much faster, and appear only once they are ready instead of showing an empty frame first.
+
+### Fixed
+
+- Parts of the menu could come up blank after environments appeared or were hidden.
+
 ## [0.1.0] - 2026-11-11
 
 First public release.
