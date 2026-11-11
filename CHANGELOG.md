@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-11
+
 ### Changed
 
 - CPU and memory charts use a fixed 0–100% scale, like Laravel Cloud's dashboard, so small changes no longer look like big swings.
@@ -48,6 +50,7 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.1
 [0.1.0]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.0
