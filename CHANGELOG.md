@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-11
+
 ### Added
 
 - Switch branch in each environment's menu: pick one of the project's recent branches, or type another, and LC Menubar switches the environment to it and deploys.
@@ -65,7 +67,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.4
 [0.1.3]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.3
 [0.1.2]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.1
