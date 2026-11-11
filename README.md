@@ -7,7 +7,9 @@
 ## Install
 
 ```sh
-brew install --cask mstaack/tap/lc-menubar
+brew tap mstaack/tap
+brew trust mstaack/tap   # Homebrew asks you to trust third-party taps
+brew install --cask lc-menubar
 ```
 
 Then paste a Laravel Cloud API token in Settings › Organizations. Tokens live in the Keychain. The app updates itself. macOS 13+, Apple silicon and Intel.

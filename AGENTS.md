@@ -55,6 +55,6 @@ CI (`.github/workflows/ci.yml`) runs fmt, clippy with `-D warnings` and tests on
 3. The Release workflow builds a universal app, signs and notarizes it when secrets are set (`MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`), and publishes the zip, its `.sha256` and the changelog section.
 4. Update the Homebrew tap: copy `packaging/lc-menubar.rb` to `Casks/lc-menubar.rb` in [mstaack/homebrew-tap](https://github.com/mstaack/homebrew-tap) with the new `version` and the `sha256` from the release's `.sha256` file, and push.
 
-Releases are not signed yet (no signing secrets): the cask clears the quarantine flag after install, and the updater checks checksums only.
+Releases are not signed yet (no signing secrets): the cask clears the quarantine flag after install, and the updater checks checksums only. Check cask changes with `brew style` and `brew audit --cask --online mstaack/tap/lc-menubar`; don't use `uninstall delete:` (it runs with sudo).
 
 Once signed, the updater only accepts updates signed by the same Team ID.
