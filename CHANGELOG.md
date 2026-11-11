@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-11
+
 ### Added
 
 - Show or hide whole projects in Settings › Projects. A hidden project's environments stay hidden, including ones added later.
@@ -37,5 +39,6 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.1
 [0.1.0]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.0
