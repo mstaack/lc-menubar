@@ -699,7 +699,7 @@ impl App {
         let Some(release) = self.update.clone() else {
             return;
         };
-        let notes = model::truncate(&release.notes, 600);
+        let notes = model::truncate(&changelog::plain(&release.notes), 600);
         if !updater::can_install() || release.zip_url.is_none() {
             // Not in a writable bundle (development build, or no permission):
             // the release page has the download.
@@ -1593,10 +1593,10 @@ fn metric_cards(m: &Metrics, selected: Period) -> Vec<Card> {
                 .iter()
                 .filter_map(|s| s.average)
                 .reduce(f64::max);
-            // A 5 % floor keeps idle environments looking idle instead of magnifying noise.
+            // A fixed 0–100 % scale, as in Laravel Cloud's dashboard: 30 % looks like 30 %.
             let key: Vec<Vec<u64>> = series.iter().map(|s| bits(s)).collect();
-            let png = chart_memo(("line", key, hue as u8), || {
-                charts::line_chart(&series, hue, 5.0, chart_w(), 40.0)
+            let png = chart_memo(("line100", key, hue as u8), || {
+                charts::line_chart(&series, hue, 100.0, chart_w(), 40.0)
             })?;
             let mut caption = vec![];
             if let Some(a) = avg {

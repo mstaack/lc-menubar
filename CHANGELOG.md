@@ -7,6 +7,15 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Changed
+
+- CPU and memory charts use a fixed 0–100% scale, like Laravel Cloud's dashboard, so small changes no longer look like big swings.
+
+### Fixed
+
+- The latest deployment could be stuck on an old attempt that never started (such as "deployments are disabled"), even after later deploys succeeded.
+- Release notes in the update dialog show as plain text instead of Markdown.
+
 ## [0.1.1] - 2026-11-11
 
 ### Added

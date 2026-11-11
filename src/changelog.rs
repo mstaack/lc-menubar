@@ -18,6 +18,58 @@ pub fn releases() -> Vec<Release> {
     parse(SOURCE)
 }
 
+/// Release notes (Markdown, as on GitHub) as plain text for a dialog: headings
+/// become labels, list items bullets, and links and code marks are dropped.
+pub fn plain(md: &str) -> String {
+    let mut out: Vec<String> = vec![];
+    for line in md.lines() {
+        let line = line.trim_end();
+        let text = if let Some(h) = line.trim_start_matches('#').strip_prefix(' ')
+            && line.starts_with('#')
+        {
+            format!("{}:", h.trim())
+        } else if let Some(item) = line.trim_start().strip_prefix("- ") {
+            format!("• {item}")
+        } else {
+            line.trim().to_string()
+        };
+        let text = strip_inline(&text);
+        if text.is_empty() && out.last().is_none_or(|l| l.is_empty()) {
+            continue;
+        }
+        out.push(text);
+    }
+    while out.last().is_some_and(|l| l.is_empty()) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
+/// `code` → code, [text](url) → text, **bold** → bold.
+fn strip_inline(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find('[') {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 1..];
+        match after
+            .find("](")
+            .and_then(|j| after[j..].find(')').map(|k| (j, j + k)))
+        {
+            Some((j, end)) => {
+                out.push_str(&after[..j]);
+                rest = &after[end + 1..];
+            }
+            None => {
+                out.push('[');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out.replace('`', "").replace("**", "")
+}
+
 fn parse(src: &str) -> Vec<Release> {
     let mut out: Vec<Release> = vec![];
     for line in src.lines() {
@@ -72,6 +124,15 @@ mod tests {
                     ("Added".into(), vec!["Three".into()]),
                 ],
             }]
+        );
+    }
+
+    #[test]
+    fn notes_become_plain_text() {
+        let md = "### Added\n\n- Show `brew` [docs](https://x.y) **now**\n\n### Fixed\n\n- Blank cards\n";
+        assert_eq!(
+            plain(md),
+            "Added:\n\n• Show brew docs now\n\nFixed:\n\n• Blank cards"
         );
     }
 

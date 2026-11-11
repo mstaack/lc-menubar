@@ -72,13 +72,23 @@ fn to_deployment(r: Resource<DeployAttrs>) -> Deployment {
 }
 
 /// Pick the newest deployment from a list page. The API does not document its sort
-/// order, so prefer the most recent start time and treat not-yet-started
-/// deployments (pending/queued, `started_at == null`) as the newest.
+/// order, so rank by start (or finish) time. A deployment that has not started is
+/// the newest only while it is still on its way (pending, queued): one that was
+/// rejected before starting must not outrank every later deployment. Ties keep the
+/// API's order (earlier in the list wins).
 fn newest(deps: Vec<Deployment>) -> Option<Deployment> {
-    deps.into_iter().max_by_key(|d| match d.started_at {
-        None => (1, DateTime::<Utc>::MAX_UTC),
-        Some(t) => (0, t),
-    })
+    let n = deps.len();
+    deps.into_iter()
+        .enumerate()
+        .max_by_key(|(i, d)| {
+            let rank = match d.started_at.or(d.finished_at) {
+                Some(t) => (1, t),
+                None if d.phase() == crate::model::Phase::Building => (2, DateTime::<Utc>::MAX_UTC),
+                None => (0, DateTime::<Utc>::MIN_UTC),
+            };
+            (rank, n - i)
+        })
+        .map(|(_, d)| d)
 }
 
 #[derive(Deserialize)]
@@ -595,6 +605,35 @@ mod tests {
         let d = newest(vec![mk("a", Some("2026-11-11T10:00:00Z")), mk("b", None)]).unwrap();
         assert_eq!(d.id, "b");
         assert!(newest(vec![]).is_none());
+    }
+
+    #[test]
+    fn rejected_deployment_without_start_does_not_stick() {
+        let mk = |id: &str, status: &str, started: Option<&str>| Deployment {
+            id: id.into(),
+            status: status.into(),
+            branch: String::new(),
+            commit_hash: String::new(),
+            commit_message: String::new(),
+            commit_author: None,
+            failure_reason: Some("Deployments are temporarily disabled".into()),
+            started_at: started.map(|s| s.parse().unwrap()),
+            finished_at: None,
+        };
+        // An attempt rejected before it started, then a successful deploy.
+        let d = newest(vec![
+            mk("ok", "deployment.succeeded", Some("2026-11-11T12:00:00Z")),
+            mk("rejected", "failed", None),
+        ])
+        .unwrap();
+        assert_eq!(d.id, "ok");
+        // Without any times, the API's order decides.
+        let d = newest(vec![
+            mk("first", "failed", None),
+            mk("second", "failed", None),
+        ])
+        .unwrap();
+        assert_eq!(d.id, "first");
     }
 
     #[test]

@@ -109,8 +109,9 @@ pub fn resample(points: &[f64], n: usize) -> Vec<f64> {
 }
 
 /// Smooth line chart with a soft area fill. The first series is the accent; any
-/// further series are drawn quietly in neutral. The y-scale fits the data (peak
-/// plus headroom) but never goes below `floor`, so idle noise stays small.
+/// further series are drawn quietly in neutral. The y-scale runs from 0 to `floor`
+/// (100 for percentages, as in Laravel Cloud's dashboard), and grows past it only
+/// when the data does.
 pub fn line_chart(
     series: &[Vec<f64>],
     hue: Hue,
@@ -124,7 +125,7 @@ pub fn line_chart(
     grid(&mut p, w, h, top, bottom);
 
     let data_max = series.iter().flatten().copied().fold(0.0f64, f64::max);
-    let y_max = (data_max * 1.25).max(floor).max(1e-9);
+    let y_max = data_max.max(floor).max(1e-9);
 
     // Draw neutral series first so the accent sits on top.
     for (idx, raw) in series.iter().enumerate().rev() {
