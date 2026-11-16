@@ -1667,6 +1667,18 @@ fn commit_url(repo: &str, hash: &str) -> String {
     format!("https://github.com/{repo}/commit/{hash}")
 }
 
+/// Billing period as `1 – 30 Nov` (or `15 Oct – 14 Nov`); periods are in UTC.
+fn fmt_period(from: chrono::DateTime<Utc>, to: chrono::DateTime<Utc>) -> String {
+    use chrono::Datelike;
+    if (from.year(), from.month()) == (to.year(), to.month()) {
+        format!("{} – {}", from.format("%-d"), to.format("%-d %b"))
+    } else if from.year() == to.year() {
+        format!("{} – {}", from.format("%-d %b"), to.format("%-d %b"))
+    } else {
+        format!("{} – {}", from.format("%-d %b %Y"), to.format("%-d %b %Y"))
+    }
+}
+
 const PERIODS: [Period; 4] = [Period::H1, Period::H6, Period::H24, Period::D7];
 
 fn period_label(p: Period) -> &'static str {
@@ -2301,6 +2313,27 @@ fn build_menu(
         }
     }
 
+    if settings.show_spend && !s.usage.is_empty() {
+        let _ = menu.append(&PredefinedMenuItem::separator());
+        for (account, org, u) in &s.usage {
+            b.owned.push((menu.items().len(), account.clone()));
+            // Several organizations: name them; the period is the same month anyway.
+            let label = if s.usage.len() > 1 && active.is_none() {
+                format!("{} · spend", truncate(org, 20))
+            } else {
+                match u.period.map(|(from, to)| fmt_period(from, to)) {
+                    Some(r) => format!("Spend {r}"),
+                    None => "Spend this period".into(),
+                }
+            };
+            let mut items = vec![(label, api::fmt_money(u.spend_cents, &u.currency))];
+            if let Some(bw) = u.bandwidth_pct {
+                items.push(("Bandwidth".into(), format!("{bw}%")));
+            }
+            b.card_in_menu(&menu, Card::Stats { items });
+        }
+    }
+
     let _ = menu.append(&PredefinedMenuItem::separator());
     if let Some((version, installing)) = update {
         let _ = if installing {
@@ -2728,6 +2761,23 @@ fn set_status_icon(tray: &TrayIcon, light: Light) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_billing_period() {
+        let d = |s: &str| s.parse::<chrono::DateTime<Utc>>().unwrap();
+        assert_eq!(
+            fmt_period(d("2026-11-01T00:00:00Z"), d("2026-11-30T23:59:59Z")),
+            "1 – 30 Nov"
+        );
+        assert_eq!(
+            fmt_period(d("2026-10-15T00:00:00Z"), d("2026-11-14T23:59:59Z")),
+            "15 Oct – 14 Nov"
+        );
+        assert_eq!(
+            fmt_period(d("2026-12-15T00:00:00Z"), d("2027-01-14T23:59:59Z")),
+            "15 Dec 2026 – 14 Jan 2027"
+        );
+    }
 
     #[test]
     fn builds_commit_url() {

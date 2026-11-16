@@ -158,7 +158,7 @@ impl Poller {
                         self.fetch_metrics(&s, false).await;
                         self.publish_metrics(&s, &on_snapshot);
                     }
-                    poll_api = s.show_spend_in_menu_bar && self.usage.is_empty();
+                    poll_api = (s.show_spend || s.show_spend_in_menu_bar) && self.usage.is_empty();
                 }
                 Some(Command::SetAccounts(accounts)) => {
                     self.accounts = accounts;
@@ -302,7 +302,7 @@ impl Poller {
             if let Some(org) = self.orgs.get(&account) {
                 apps.extend(org.apps.iter().cloned());
             }
-            if settings.show_spend_in_menu_bar
+            if (settings.show_spend || settings.show_spend_in_menu_bar)
                 && self
                     .usage
                     .get(&account)
@@ -427,7 +427,7 @@ impl Poller {
                 .flatten();
         }
 
-        let usage = if settings.show_spend_in_menu_bar {
+        let usage = if settings.show_spend || settings.show_spend_in_menu_bar {
             self.accounts
                 .iter()
                 .filter_map(|(account, _)| {

@@ -7,6 +7,10 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Added
+
+- The menu shows the spend total and bandwidth usage for the current billing period again, in a compact row (Settings › Menu and metrics).
+
 ## [0.1.9] - 2026-11-16
 
 ### Changed

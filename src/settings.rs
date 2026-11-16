@@ -28,6 +28,8 @@ pub struct Settings {
     /// Application (project) ids hidden with all their environments, also ones
     /// added later.
     pub hidden_apps: HashSet<String>,
+    /// Spend and bandwidth of the billing period in the menu.
+    pub show_spend: bool,
     pub show_spend_in_menu_bar: bool,
     /// Connected organizations; tokens live in the Keychain under each id.
     pub accounts: Vec<Account>,
@@ -79,6 +81,7 @@ impl Default for Settings {
             show_replicas_in_menu: true,
             hidden_envs: HashSet::new(),
             hidden_apps: HashSet::new(),
+            show_spend: true,
             show_spend_in_menu_bar: false,
             accounts: vec![],
             favorite_commands: vec![
