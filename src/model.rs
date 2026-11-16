@@ -115,68 +115,8 @@ pub struct EnvDetails {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instance {
     pub id: String,
-    pub name: String,
     /// `app`, `service`, `queue` or `managed_queue`.
     pub kind: String,
-    pub size: Option<String>,
-    /// `none`, `custom` or `auto`.
-    pub scaling: Option<String>,
-    pub min_replicas: Option<i64>,
-    pub max_replicas: Option<i64>,
-    pub cpu_threshold: Option<i64>,
-    pub memory_threshold: Option<i64>,
-    pub paused: bool,
-}
-
-impl Instance {
-    pub fn kind_label(&self) -> &str {
-        match self.kind.as_str() {
-            "app" => "App",
-            "service" => "Service",
-            "queue" => "Worker",
-            "managed_queue" => "Managed queue",
-            other => other,
-        }
-    }
-
-    /// `1–3 replicas at CPU 70%` / `2 replicas`.
-    pub fn scaling_label(&self) -> String {
-        let reps = match (self.min_replicas, self.max_replicas) {
-            (Some(a), Some(b)) if a != b => format!("{a}–{b} replicas"),
-            (Some(1), _) | (None, Some(1)) => "1 replica".into(),
-            (Some(a), _) | (None, Some(a)) => format!("{a} replicas"),
-            _ => String::new(),
-        };
-        let mut at = vec![];
-        if let Some(c) = self.cpu_threshold {
-            at.push(format!("CPU {c}%"));
-        }
-        if let Some(m) = self.memory_threshold {
-            at.push(format!("mem {m}%"));
-        }
-        if self.scaling.as_deref() == Some("auto") && !at.is_empty() && !reps.is_empty() {
-            format!("{reps} at {}", at.join("/"))
-        } else {
-            reps
-        }
-    }
-
-    /// One line: `web · flex-1gb · 1–3 replicas at CPU 70%`; non-app kinds are named.
-    pub fn summary(&self) -> String {
-        let mut parts = vec![self.name.clone()];
-        if self.kind != "app" {
-            parts.push(self.kind_label().to_lowercase());
-        }
-        parts.extend(self.size.clone());
-        let scaling = self.scaling_label();
-        if !scaling.is_empty() {
-            parts.push(scaling);
-        }
-        if self.paused {
-            parts.push("paused".into());
-        }
-        parts.join(" · ")
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -112,17 +112,8 @@ fn to_deployment(r: Resource<DeployAttrs>) -> Deployment {
 
 #[derive(Deserialize)]
 struct InstanceAttrs {
-    #[serde(default)]
-    name: String,
     #[serde(default, rename = "type")]
     kind: String,
-    size: Option<String>,
-    scaling_type: Option<String>,
-    min_replicas: Option<i64>,
-    max_replicas: Option<i64>,
-    scaling_cpu_threshold_percentage: Option<i64>,
-    scaling_memory_threshold_percentage: Option<i64>,
-    paused: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -144,29 +135,10 @@ struct FailedJobAttrs {
     failed_at: Option<DateTime<Utc>>,
 }
 
-/// `true`, `1` or `"true"`.
-fn truthy(v: Option<serde_json::Value>) -> bool {
-    match v {
-        Some(serde_json::Value::Bool(b)) => b,
-        Some(serde_json::Value::Number(n)) => n.as_i64() == Some(1),
-        Some(serde_json::Value::String(s)) => matches!(s.as_str(), "true" | "1"),
-        _ => false,
-    }
-}
-
 fn to_instance(r: Resource<InstanceAttrs>) -> Instance {
-    let a = r.attributes;
     Instance {
         id: r.id,
-        name: a.name,
-        kind: a.kind,
-        size: a.size.filter(|s| !s.is_empty()),
-        scaling: a.scaling_type,
-        min_replicas: a.min_replicas,
-        max_replicas: a.max_replicas,
-        cpu_threshold: a.scaling_cpu_threshold_percentage,
-        memory_threshold: a.scaling_memory_threshold_percentage,
-        paused: truthy(a.paused),
+        kind: r.attributes.kind,
     }
 }
 
@@ -988,8 +960,7 @@ mod tests {
               "paused":false}}))
         .unwrap();
         let i = to_instance(i);
-        assert_eq!(i.kind_label(), "App");
-        assert_eq!(i.summary(), "web · flex-1gb · 1–3 replicas at CPU 70%");
+        assert_eq!((i.id.as_str(), i.kind.as_str()), ("i", "app"));
 
         let ok: Resource<DomainAttrs> = serde_json::from_value(serde_json::json!({"id":"x",
             "attributes":{"name":"a.test","hostname_status":"verified","ssl_status":"verified",

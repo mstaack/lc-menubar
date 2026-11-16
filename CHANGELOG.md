@@ -7,6 +7,10 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Changed
+
+- The instances list is gone from the environment menu; it added more noise than help.
+
 ## [0.1.8] - 2026-11-16
 
 ### Changed

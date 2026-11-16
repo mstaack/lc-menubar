@@ -1600,18 +1600,6 @@ fn fmt_pct_short(v: f64) -> String {
     }
 }
 
-/// Instances with their size and scaling.
-fn instances_card(instances: &[model::Instance]) -> Card {
-    Card::Status {
-        title: "Instances".into(),
-        dot: None,
-        lines: instances
-            .iter()
-            .map(|i| (truncate(&i.summary(), 52), Tone::Secondary))
-            .collect(),
-    }
-}
-
 /// Domains, with DNS / SSL problems spelled out; the dot is red on a failure,
 /// orange while something is pending.
 fn domains_card(domains: &[model::Domain]) -> Card {
@@ -2213,13 +2201,10 @@ fn build_menu(
                     },
                 ));
             }
-            if let Some(d) = &env.details {
-                if !d.instances.is_empty() {
-                    sub_cards.push((B::placeholder_in_sub(&sub), instances_card(&d.instances)));
-                }
-                if !d.domains.is_empty() {
-                    sub_cards.push((B::placeholder_in_sub(&sub), domains_card(&d.domains)));
-                }
+            if let Some(d) = &env.details
+                && !d.domains.is_empty()
+            {
+                sub_cards.push((B::placeholder_in_sub(&sub), domains_card(&d.domains)));
             }
             let _ = sub.append(&PredefinedMenuItem::separator());
 
@@ -2415,17 +2400,9 @@ fn write_iconset(dir: &str) {
 /// Instances, domains and failed jobs for the demo's storefront production.
 fn demo_details() -> model::EnvDetails {
     use model::{Domain, FailedJob, Instance};
-    let instance = |id: &str, name: &str, kind: &str, size: &str| Instance {
+    let instance = |id: &str, kind: &str| Instance {
         id: id.into(),
-        name: name.into(),
         kind: kind.into(),
-        size: Some(size.into()),
-        scaling: Some("auto".into()),
-        min_replicas: Some(1),
-        max_replicas: Some(3),
-        cpu_threshold: Some(70),
-        memory_threshold: None,
-        paused: false,
     };
     let domain = |name: &str, ssl: &str| Domain {
         name: name.into(),
@@ -2444,15 +2421,7 @@ fn demo_details() -> model::EnvDetails {
         failed_at: Some(Utc::now() - chrono::Duration::minutes(mins)),
     };
     model::EnvDetails {
-        instances: vec![
-            instance("i1", "web", "app", "flex-1gb"),
-            Instance {
-                scaling: Some("none".into()),
-                min_replicas: Some(1),
-                max_replicas: Some(1),
-                ..instance("i2", "jobs", "managed_queue", "flex-512mb")
-            },
-        ],
+        instances: vec![instance("i1", "app"), instance("i2", "managed_queue")],
         domains: vec![
             domain("shop.northwind.example", "verified"),
             domain("www.northwind.example", "pending"),
