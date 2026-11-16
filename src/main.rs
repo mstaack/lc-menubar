@@ -1705,40 +1705,9 @@ fn failed_jobs_menu(
     menu
 }
 
-/// Cost per project, highest first (at most 6, the rest summed up).
-fn project_costs(u: &api::Usage) -> Vec<(String, String)> {
-    let mut apps: Vec<&(String, i64)> = u.applications.iter().filter(|(_, c)| *c > 0).collect();
-    apps.sort_by_key(|(_, c)| std::cmp::Reverse(*c));
-    let mut rows: Vec<(String, String)> = apps
-        .iter()
-        .take(6)
-        .map(|(n, c)| (truncate(n, 34), api::fmt_money(*c, &u.currency)))
-        .collect();
-    if apps.len() > 6 {
-        let rest: i64 = apps[6..].iter().map(|(_, c)| c).sum();
-        rows.push((
-            format!("{} more", apps.len() - 6),
-            api::fmt_money(rest, &u.currency),
-        ));
-    }
-    rows
-}
-
 /// GitHub page of a commit, showing its diff.
 fn commit_url(repo: &str, hash: &str) -> String {
     format!("https://github.com/{repo}/commit/{hash}")
-}
-
-/// Billing period as `1 – 30 Nov` (or `15 Oct – 14 Nov`); periods are in UTC.
-fn fmt_period(from: chrono::DateTime<Utc>, to: chrono::DateTime<Utc>) -> String {
-    use chrono::Datelike;
-    if (from.year(), from.month()) == (to.year(), to.month()) {
-        format!("{} – {}", from.format("%-d"), to.format("%-d %b"))
-    } else if from.year() == to.year() {
-        format!("{} – {}", from.format("%-d %b"), to.format("%-d %b"))
-    } else {
-        format!("{} – {}", from.format("%-d %b %Y"), to.format("%-d %b %Y"))
-    }
 }
 
 const PERIODS: [Period; 4] = [Period::H1, Period::H6, Period::H24, Period::D7];
@@ -1990,7 +1959,8 @@ const ABOUT_TEXT: &str = "Made by Max in Hamburg, Germany (github.com/mstaack), 
 
 /// Text next to the status dot: the total spend, when enabled.
 fn menu_title(view: &Snapshot, settings: &Settings) -> Option<String> {
-    (settings.show_spend && settings.show_spend_in_menu_bar)
+    settings
+        .show_spend_in_menu_bar
         .then(|| total_spend(view))
         .flatten()
 }
@@ -2379,53 +2349,6 @@ fn build_menu(
             for (i, card) in sub_cards {
                 b.cards.push((vec![top, i], card));
             }
-        }
-    }
-
-    if settings.show_spend && !s.usage.is_empty() {
-        let _ = menu.append(&PredefinedMenuItem::separator());
-        for (account, org, u) in &s.usage {
-            b.owned.push((menu.items().len(), account.clone()));
-            let mut caption = vec![];
-            if let Some(bw) = u.bandwidth_pct {
-                caption.push(format!("Bandwidth {bw}%"));
-            }
-            if let Some((used, total)) = u.credits {
-                caption.push(format!(
-                    "credits {} of {}",
-                    api::fmt_money(used, &u.currency),
-                    api::fmt_money(total, &u.currency)
-                ));
-            }
-            if let Some((threshold, _)) = u.alert {
-                caption.push(format!(
-                    "alert at {}",
-                    api::fmt_money(threshold, &u.currency)
-                ));
-            }
-            let range = u.period.map(|(from, to)| fmt_period(from, to));
-            let title = match (s.usage.len() > 1 && active.is_none(), range) {
-                (true, Some(r)) => format!("{org} · spend {r}"),
-                (true, None) => format!("{org} · spend this period"),
-                (false, Some(r)) => format!("Spend {r}"),
-                (false, None) => "Spend this period".into(),
-            };
-            b.card_in_menu(
-                &menu,
-                Card::Spend {
-                    title,
-                    value: api::fmt_money(u.spend_cents, &u.currency),
-                    caption: if caption.is_empty() {
-                        "Current billing period".into()
-                    } else {
-                        caption.join(" · ")
-                    },
-                    meter: u
-                        .bandwidth_pct
-                        .and_then(|p| charts::meter(p as f64 / 100.0, chart_w(), 6.0)),
-                    rows: project_costs(u),
-                },
-            );
         }
     }
 
@@ -2843,16 +2766,6 @@ fn preview_cards(dir: &str) {
     };
     let mut cards = vec![deployment_card(&env, Utc::now())];
     cards.extend(metric_cards(&m, Period::H1));
-    cards.push(Card::Spend {
-        title: "Spend 1 – 30 Nov".into(),
-        value: api::fmt_money(4_812, "USD"),
-        caption: "Bandwidth 42% · alert at $100.00".into(),
-        meter: charts::meter(0.42, chart_w(), 6.0),
-        rows: vec![
-            ("storefront".into(), "$31.40".into()),
-            ("admin-api".into(), "$16.72".into()),
-        ],
-    });
     let _ = std::fs::create_dir_all(dir);
     for dark in [false, true] {
         for (i, c) in cards.iter().enumerate() {
@@ -2895,20 +2808,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn formats_billing_period() {
-        let d = |s: &str| s.parse::<chrono::DateTime<Utc>>().unwrap();
-        assert_eq!(
-            fmt_period(d("2026-11-01T00:00:00Z"), d("2026-11-30T23:59:59Z")),
-            "1 – 30 Nov"
-        );
-        assert_eq!(
-            fmt_period(d("2026-10-15T00:00:00Z"), d("2026-11-14T23:59:59Z")),
-            "15 Oct – 14 Nov"
-        );
-        assert_eq!(
-            fmt_period(d("2026-12-15T00:00:00Z"), d("2027-01-14T23:59:59Z")),
-            "15 Dec 2026 – 14 Jan 2027"
-        );
+    fn builds_commit_url() {
         assert_eq!(
             commit_url("acme/shop", "abc123"),
             "https://github.com/acme/shop/commit/abc123"

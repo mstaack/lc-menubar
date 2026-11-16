@@ -398,8 +398,7 @@ footer.status:has(.msg:empty){display:none}
     </div>
     <h2>Spend</h2>
     <div class="card">
-      <div class="row"><div class="grow">Show spend for the current billing period<span class="hint">Refreshed every 10 minutes</span></div><input type="checkbox" class="switch" data-k="show_spend"></div>
-      <div class="row"><div class="grow">Show the total next to the status dot</div><input type="checkbox" class="switch" data-k="show_spend_in_menu_bar"></div>
+      <div class="row"><div class="grow">Show the spend for the current billing period next to the status dot<span class="hint">Refreshed every 10 minutes</span></div><input type="checkbox" class="switch" data-k="show_spend_in_menu_bar"></div>
     </div>
   </section>
 

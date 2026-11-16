@@ -290,41 +290,6 @@ pub fn bar_chart(total: &[f64], errors: &[f64], w_pt: f32, h_pt: f32) -> Option<
     png(p)
 }
 
-/// Horizontal meter (e.g. bandwidth allowance). Turns amber above 80 %, red above 95 %.
-pub fn meter(fraction: f64, w_pt: f32, h_pt: f32) -> Option<Vec<u8>> {
-    let mut p = canvas(w_pt, h_pt)?;
-    let (w, h) = (p.width() as f32, p.height() as f32);
-    let radius = h / 2.0;
-    let track = rounded_rect(0.0, 0.0, w, h, radius)?;
-    p.fill_path(
-        &track,
-        &paint(NEUTRAL.with_alpha(55)),
-        FillRule::Winding,
-        Transform::identity(),
-        None,
-    );
-    let f = fraction.clamp(0.0, 1.0) as f32;
-    if f > 0.0 {
-        let color = if f > 0.95 {
-            NEGATIVE
-        } else if f > 0.8 {
-            WARNING
-        } else {
-            Hue::Blue.rgba()
-        };
-        if let Some(fill) = rounded_rect(0.0, 0.0, (w * f).max(h), h, radius) {
-            p.fill_path(
-                &fill,
-                &paint(color),
-                FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
-        }
-    }
-    png(p)
-}
-
 fn rounded_rect(x: f32, y: f32, w: f32, h: f32, r: f32) -> Option<tiny_skia::Path> {
     let r = r.min(w / 2.0).min(h / 2.0);
     let k = 0.552_284_8 * r;
@@ -611,8 +576,6 @@ mod tests {
         assert_eq!(decode_size(&png), (520, 80));
         let png = bar_chart(&[10.0, 20.0, 5.0], &[0.0, 2.0, 0.0], 260.0, 32.0).unwrap();
         assert_eq!(decode_size(&png), (520, 64));
-        let png = meter(0.42, 260.0, 6.0).unwrap();
-        assert_eq!(decode_size(&png), (520, 12));
     }
 
     #[test]

@@ -37,7 +37,7 @@ xattr -dr com.apple.quarantine "/Applications/LC Menubar.app"
 
 <table>
   <tr>
-    <td align="center" valign="top" width="33%"><img src="docs/screenshots/menu.png" alt="Menu with environments and spend"><br><sub>Environments and spend</sub></td>
+    <td align="center" valign="top" width="33%"><img src="docs/screenshots/menu.png" alt="Menu with environments"><br><sub>Environments</sub></td>
     <td align="center" valign="top" width="33%"><img src="docs/screenshots/environment.png" alt="Environment card with charts and actions"><br><sub>Environment card</sub></td>
     <td align="center" valign="top" width="33%"><img src="docs/screenshots/failed.png" alt="Failed deployment with its reason"><br><sub>A failed deploy</sub></td>
   </tr>

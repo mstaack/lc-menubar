@@ -43,15 +43,6 @@ pub enum Card {
     },
     /// Columns of small label over value.
     Stats { items: Vec<(String, String)> },
-    /// Label, big amount, optional meter and caption.
-    Spend {
-        title: String,
-        value: String,
-        caption: String,
-        meter: Option<Vec<u8>>,
-        /// Name and amount, e.g. cost per project.
-        rows: Vec<(String, String)>,
-    },
     /// Segmented switch (time range, organization). Clicking keeps the menu open.
     Segments {
         kind: Segment,
@@ -93,13 +84,6 @@ impl Card {
                 dim,
             } => (2u8, title, value, caption, png, chart_h.to_bits(), dim).hash(&mut h),
             Card::Stats { items } => (3u8, items).hash(&mut h),
-            Card::Spend {
-                title,
-                value,
-                caption,
-                meter,
-                rows,
-            } => (4u8, title, value, caption, meter, rows).hash(&mut h),
             Card::Segments {
                 kind,
                 title,
@@ -616,59 +600,6 @@ mod imp {
                 // The native separator below brings 6 pt of its own above its line;
                 // 2 pt here makes the gap below equal the 8 pt above.
                 l.finish(2.0)
-            }
-            Card::Spend {
-                title,
-                value,
-                caption,
-                meter,
-                rows,
-            } => {
-                let mut l = Layout::new(mtm, 8.0);
-                l.text(title, 11.0, Tone::Secondary, regular, 14.0);
-                l.text(value, 20.0, Tone::Primary, medium, 26.0);
-                if let Some(png) = meter
-                    && let Some(iv) = image_view(mtm, png, w, 6.0)
-                {
-                    let y = l.y + 4.0;
-                    l.put(
-                        iv.into_super().into_super(),
-                        INSET,
-                        y,
-                        w,
-                        6.0,
-                        Anchor::Stretch,
-                    );
-                    l.y += 14.0;
-                }
-                l.text(caption, 11.0, Tone::Secondary, regular, 14.0);
-                if !rows.is_empty() {
-                    l.y += 6.0;
-                }
-                for (name, amount) in rows {
-                    let n = label(mtm, name, 12.0, Tone::Primary, regular);
-                    let a = label(mtm, amount, 12.0, Tone::Secondary, regular);
-                    a.setAlignment(NSTextAlignment::Right);
-                    let y = l.y;
-                    l.put(
-                        n.into_super().into_super(),
-                        INSET,
-                        y,
-                        w * 0.7,
-                        16.0,
-                        Anchor::Left,
-                    );
-                    l.put(
-                        a.into_super().into_super(),
-                        INSET + w * 0.5 + 2.0,
-                        y,
-                        w * 0.5,
-                        16.0,
-                        Anchor::Right,
-                    );
-                    l.y += 17.0;
-                }
-                l.finish(8.0)
             }
         }
     }

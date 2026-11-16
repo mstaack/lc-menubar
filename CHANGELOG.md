@@ -7,6 +7,10 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Changed
+
+- The spend card is gone from the menu. The spend total can still be shown next to the status dot (Settings › Menu and metrics).
+
 ## [0.1.7] - 2026-11-16
 
 ### Added
