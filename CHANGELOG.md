@@ -7,10 +7,11 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-16
+
 ### Changed
 
-- The instances list is gone from the environment menu; it added more noise than help.
-- The domains list is gone from the environment menu too.
+- The instances and domains lists are gone from the environment menu; they added more noise than help.
 
 ## [0.1.8] - 2026-11-16
 
@@ -107,7 +108,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.9
 [0.1.8]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.8
 [0.1.7]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.7
 [0.1.6]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.6
