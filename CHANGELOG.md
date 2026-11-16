@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-11-16
+
 ### Added
 
 - The menu shows the spend total and bandwidth usage for the current billing period again, in a compact row (Settings › Menu and metrics).
@@ -113,6 +115,7 @@ First public release.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
 [Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.9...HEAD
+[0.1.10]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.10
 [0.1.9]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.9
 [0.1.8]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.8
 [0.1.7]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.7
