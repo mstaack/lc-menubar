@@ -2,7 +2,7 @@
 //! and pushes merged snapshots to the UI.
 
 use crate::api::{Client, Usage};
-use crate::model::{self, Application, Metrics, Phase, Snapshot};
+use crate::model::{self, Application, EnvDetails, Metrics, Phase, Snapshot};
 use crate::settings::{Settings, Shared};
 use crate::system;
 use chrono::Utc;
@@ -14,6 +14,7 @@ const FAST: Duration = Duration::from_secs(10);
 const TOPOLOGY_TTL: Duration = Duration::from_secs(5 * 60);
 const METRICS_TTL: Duration = Duration::from_secs(60);
 const USAGE_TTL: Duration = Duration::from_secs(10 * 60);
+const DETAILS_TTL: Duration = Duration::from_secs(2 * 60);
 
 /// (account id, token)
 pub type Credentials = Vec<(String, String)>;
@@ -61,6 +62,8 @@ struct Poller {
     usage: HashMap<String, (Usage, Instant)>,
     /// Metrics per (environment, range), so switching back to a range is instant.
     metrics: HashMap<(String, crate::model::Period), (Metrics, Instant)>,
+    /// Instances, domains and failed jobs per environment.
+    details: HashMap<String, (EnvDetails, Instant)>,
     prev_index: Option<HashMap<String, (String, Phase)>>,
     last: Snapshot,
 }
@@ -73,6 +76,7 @@ impl Poller {
             orgs: HashMap::new(),
             usage: HashMap::new(),
             metrics: HashMap::new(),
+            details: HashMap::new(),
             prev_index: None,
             last: Snapshot::default(),
         }
@@ -138,6 +142,7 @@ impl Poller {
                         self.usage.clear();
                     }
                     self.metrics.clear();
+                    self.details.clear();
                 }
                 Some(Command::SettingsChanged) => {
                     let s = self.settings();
@@ -160,6 +165,7 @@ impl Poller {
                     self.orgs.clear();
                     self.usage.clear();
                     self.metrics.clear();
+                    self.details.clear();
                     self.prev_index = None;
                     self.last = Snapshot::default();
                 }
@@ -345,6 +351,18 @@ impl Poller {
             }
         }
 
+        let mut detail_jobs = tokio::task::JoinSet::new();
+        for (id, c) in &visible {
+            let fresh = self
+                .details
+                .get(id)
+                .is_some_and(|(_, at)| at.elapsed() < DETAILS_TTL);
+            if !fresh {
+                let (c, id) = (c.clone(), id.clone());
+                detail_jobs.spawn(async move { (id.clone(), c.env_details(&id).await) });
+            }
+        }
+
         let previous_branches: HashMap<String, Vec<String>> = self
             .last
             .all_environments()
@@ -379,7 +397,19 @@ impl Poller {
             }
         }
 
+        while let Some(res) = detail_jobs.join_next().await {
+            match res {
+                Ok((id, Ok(d))) => {
+                    self.details.insert(id, (d, Instant::now()));
+                }
+                // Best-effort like metrics: keep what was shown.
+                Ok((id, Err(e))) => eprintln!("details for {id}: {e:#}"),
+                Err(e) => eprintln!("details task: {e}"),
+            }
+        }
+
         for env in apps.iter_mut().flat_map(|a| a.environments.iter_mut()) {
+            env.details = self.details.get(&env.id).map(|(d, _)| d.clone());
             env.latest = latest
                 .remove(&env.id)
                 .unwrap_or_else(|| previous.get(&env.id).cloned());

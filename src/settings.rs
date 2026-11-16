@@ -237,6 +237,7 @@ mod tests {
             domain: None,
             latest: None,
             metrics: None,
+            details: None,
             recent_branches: vec![],
         };
         let apps = vec![
@@ -246,6 +247,7 @@ mod tests {
                 org: "Org".into(),
                 name: "one".into(),
                 default_branch: None,
+                repository: None,
                 environments: vec![env("e1"), env("e2")],
             },
             Application {
@@ -254,6 +256,7 @@ mod tests {
                 org: "Org".into(),
                 name: "two".into(),
                 default_branch: None,
+                repository: None,
                 environments: vec![env("e3"), env("e4")],
             },
         ];

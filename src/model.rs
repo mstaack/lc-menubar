@@ -72,6 +72,173 @@ pub struct Deployment {
     pub failure_reason: Option<String>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
+    /// Runtime the deployment was built with.
+    pub runtime: Runtime,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Runtime {
+    pub php: Option<String>,
+    pub node: Option<String>,
+    pub octane: bool,
+    pub hibernation: bool,
+}
+
+impl Runtime {
+    /// `PHP 8.4 · Node 22 · Octane`, empty when nothing is known.
+    pub fn summary(&self) -> String {
+        let mut parts = vec![];
+        if let Some(p) = &self.php {
+            parts.push(format!("PHP {p}"));
+        }
+        if let Some(n) = &self.node {
+            parts.push(format!("Node {n}"));
+        }
+        if self.octane {
+            parts.push("Octane".into());
+        }
+        if self.hibernation {
+            parts.push("hibernation".into());
+        }
+        parts.join(" · ")
+    }
+}
+
+/// Compute instances, domains and failed queue jobs of an environment.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EnvDetails {
+    pub instances: Vec<Instance>,
+    pub domains: Vec<Domain>,
+    pub failed_jobs: Vec<FailedJob>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Instance {
+    pub id: String,
+    pub name: String,
+    /// `app`, `service`, `queue` or `managed_queue`.
+    pub kind: String,
+    pub size: Option<String>,
+    /// `none`, `custom` or `auto`.
+    pub scaling: Option<String>,
+    pub min_replicas: Option<i64>,
+    pub max_replicas: Option<i64>,
+    pub cpu_threshold: Option<i64>,
+    pub memory_threshold: Option<i64>,
+    pub paused: bool,
+}
+
+impl Instance {
+    pub fn kind_label(&self) -> &str {
+        match self.kind.as_str() {
+            "app" => "App",
+            "service" => "Service",
+            "queue" => "Worker",
+            "managed_queue" => "Managed queue",
+            other => other,
+        }
+    }
+
+    /// `1–3 replicas at CPU 70%` / `2 replicas`.
+    pub fn scaling_label(&self) -> String {
+        let reps = match (self.min_replicas, self.max_replicas) {
+            (Some(a), Some(b)) if a != b => format!("{a}–{b} replicas"),
+            (Some(1), _) | (None, Some(1)) => "1 replica".into(),
+            (Some(a), _) | (None, Some(a)) => format!("{a} replicas"),
+            _ => String::new(),
+        };
+        let mut at = vec![];
+        if let Some(c) = self.cpu_threshold {
+            at.push(format!("CPU {c}%"));
+        }
+        if let Some(m) = self.memory_threshold {
+            at.push(format!("mem {m}%"));
+        }
+        if self.scaling.as_deref() == Some("auto") && !at.is_empty() && !reps.is_empty() {
+            format!("{reps} at {}", at.join("/"))
+        } else {
+            reps
+        }
+    }
+
+    /// One line: `web · flex-1gb · 1–3 replicas at CPU 70%`; non-app kinds are named.
+    pub fn summary(&self) -> String {
+        let mut parts = vec![self.name.clone()];
+        if self.kind != "app" {
+            parts.push(self.kind_label().to_lowercase());
+        }
+        parts.extend(self.size.clone());
+        let scaling = self.scaling_label();
+        if !scaling.is_empty() {
+            parts.push(scaling);
+        }
+        if self.paused {
+            parts.push("paused".into());
+        }
+        parts.join(" · ")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Domain {
+    pub name: String,
+    pub hostname_status: String,
+    pub ssl_status: String,
+    pub origin_status: String,
+    pub action_required: Option<String>,
+}
+
+impl Domain {
+    /// What needs attention, or `None` when DNS, SSL and origin are verified.
+    pub fn problem(&self) -> Option<String> {
+        if let Some(a) = &self.action_required {
+            return Some(
+                match a.as_str() {
+                    "add_txt_records" => "add TXT records to verify",
+                    "add_dns_records" => "add DNS records",
+                    "failed" => "verification failed",
+                    other => other,
+                }
+                .to_string(),
+            );
+        }
+        let checks = [
+            ("DNS", &self.hostname_status),
+            ("SSL", &self.ssl_status),
+            ("origin", &self.origin_status),
+        ];
+        let bad: Vec<String> = checks
+            .iter()
+            .filter(|(_, s)| !matches!(s.as_str(), "verified" | "disabled" | ""))
+            .map(|(k, s)| format!("{k} {s}"))
+            .collect();
+        (!bad.is_empty()).then(|| bad.join(", "))
+    }
+
+    pub fn failed(&self) -> bool {
+        self.action_required.as_deref() == Some("failed")
+            || [&self.hostname_status, &self.ssl_status, &self.origin_status]
+                .iter()
+                .any(|s| s.as_str() == "failed")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FailedJob {
+    pub id: String,
+    pub instance_id: String,
+    pub name: String,
+    pub queue: Option<String>,
+    pub attempts: i64,
+    pub exception: Option<String>,
+    pub failed_at: Option<DateTime<Utc>>,
+}
+
+impl Environment {
+    pub fn with_details(mut self, d: EnvDetails) -> Self {
+        self.details = Some(d);
+        self
+    }
 }
 
 impl Deployment {
@@ -97,6 +264,8 @@ pub struct Environment {
     pub domain: Option<String>,
     pub latest: Option<Deployment>,
     pub metrics: Option<Metrics>,
+    /// Instances, domains and failed jobs (fetched less often than deployments).
+    pub details: Option<EnvDetails>,
     /// Branches of recent deployments, newest first (offered when switching branch).
     pub recent_branches: Vec<String>,
 }
@@ -111,6 +280,8 @@ pub struct Application {
     pub name: String,
     /// The repository's default branch, when Laravel Cloud reports one.
     pub default_branch: Option<String>,
+    /// `owner/name` of the GitHub repository, when Laravel Cloud reports one.
+    pub repository: Option<String>,
     pub environments: Vec<Environment>,
 }
 
@@ -417,6 +588,7 @@ mod tests {
             domain: None,
             latest: None,
             metrics: None,
+            details: None,
             recent_branches: branches.iter().map(|b| b.to_string()).collect(),
         };
         let app = Application {
@@ -425,6 +597,7 @@ mod tests {
             org: "Org".into(),
             name: "app".into(),
             default_branch: Some("main".into()),
+            repository: None,
             environments: vec![
                 env(&["develop", "main"]),
                 env(&["feature/x", "develop", ""]),
@@ -444,6 +617,7 @@ mod tests {
             failure_reason: None,
             started_at: None,
             finished_at: None,
+            runtime: Default::default(),
         }
     }
 
@@ -455,6 +629,7 @@ mod tests {
                 org: "Org".into(),
                 name: "Shop".into(),
                 default_branch: None,
+                repository: None,
                 environments: deps
                     .iter()
                     .map(|(env, d)| Environment {
@@ -464,6 +639,7 @@ mod tests {
                         domain: None,
                         latest: d.clone(),
                         metrics: None,
+                        details: None,
                         recent_branches: vec![],
                     })
                     .collect(),

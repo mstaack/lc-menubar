@@ -1,6 +1,9 @@
 //! Minimal Laravel Cloud API client (JSON:API over https://cloud.laravel.com/api).
 
-use crate::model::{Application, Deployment, Environment, Metric, Metrics, Period, Series};
+use crate::model::{
+    Application, Deployment, Domain, EnvDetails, Environment, FailedJob, Instance, Metric, Metrics,
+    Period, Runtime, Series,
+};
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -37,6 +40,9 @@ struct AppAttrs {
 struct RepoAttrs {
     #[serde(default)]
     default_branch: Option<String>,
+    /// `owner/name` on the source provider.
+    #[serde(default)]
+    full_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -62,6 +68,25 @@ struct DeployAttrs {
     failure_reason: Option<String>,
     started_at: Option<DateTime<Utc>>,
     finished_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    php_major_version: Option<serde_json::Value>,
+    #[serde(default)]
+    node_version: Option<serde_json::Value>,
+    #[serde(default)]
+    uses_octane: Option<bool>,
+    #[serde(default)]
+    uses_hibernation: Option<bool>,
+}
+
+/// A version that may come as a string or a number; empty means unknown.
+fn version(v: Option<serde_json::Value>) -> Option<String> {
+    match v? {
+        serde_json::Value::String(s) => Some(s),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
 }
 
 fn to_deployment(r: Resource<DeployAttrs>) -> Deployment {
@@ -76,6 +101,97 @@ fn to_deployment(r: Resource<DeployAttrs>) -> Deployment {
         failure_reason: a.failure_reason,
         started_at: a.started_at,
         finished_at: a.finished_at,
+        runtime: Runtime {
+            php: version(a.php_major_version),
+            node: version(a.node_version),
+            octane: a.uses_octane.unwrap_or(false),
+            hibernation: a.uses_hibernation.unwrap_or(false),
+        },
+    }
+}
+
+#[derive(Deserialize)]
+struct InstanceAttrs {
+    #[serde(default)]
+    name: String,
+    #[serde(default, rename = "type")]
+    kind: String,
+    size: Option<String>,
+    scaling_type: Option<String>,
+    min_replicas: Option<i64>,
+    max_replicas: Option<i64>,
+    scaling_cpu_threshold_percentage: Option<i64>,
+    scaling_memory_threshold_percentage: Option<i64>,
+    paused: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct DomainAttrs {
+    #[serde(default)]
+    name: String,
+    hostname_status: Option<String>,
+    ssl_status: Option<String>,
+    origin_status: Option<String>,
+    action_required: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct FailedJobAttrs {
+    name: Option<String>,
+    queue: Option<String>,
+    attempts: Option<i64>,
+    exception: Option<String>,
+    failed_at: Option<DateTime<Utc>>,
+}
+
+/// `true`, `1` or `"true"`.
+fn truthy(v: Option<serde_json::Value>) -> bool {
+    match v {
+        Some(serde_json::Value::Bool(b)) => b,
+        Some(serde_json::Value::Number(n)) => n.as_i64() == Some(1),
+        Some(serde_json::Value::String(s)) => matches!(s.as_str(), "true" | "1"),
+        _ => false,
+    }
+}
+
+fn to_instance(r: Resource<InstanceAttrs>) -> Instance {
+    let a = r.attributes;
+    Instance {
+        id: r.id,
+        name: a.name,
+        kind: a.kind,
+        size: a.size.filter(|s| !s.is_empty()),
+        scaling: a.scaling_type,
+        min_replicas: a.min_replicas,
+        max_replicas: a.max_replicas,
+        cpu_threshold: a.scaling_cpu_threshold_percentage,
+        memory_threshold: a.scaling_memory_threshold_percentage,
+        paused: truthy(a.paused),
+    }
+}
+
+fn to_domain(r: Resource<DomainAttrs>) -> Domain {
+    let a = r.attributes;
+    let s = |v: Option<String>| v.unwrap_or_else(|| "pending".into());
+    Domain {
+        name: a.name,
+        hostname_status: s(a.hostname_status),
+        ssl_status: s(a.ssl_status),
+        origin_status: s(a.origin_status),
+        action_required: a.action_required.filter(|x| !x.is_empty()),
+    }
+}
+
+fn to_failed_job(instance_id: &str, r: Resource<FailedJobAttrs>) -> FailedJob {
+    let a = r.attributes;
+    FailedJob {
+        name: a.name.unwrap_or_else(|| r.id.clone()),
+        id: r.id,
+        instance_id: instance_id.to_string(),
+        queue: a.queue,
+        attempts: a.attempts.unwrap_or(0),
+        exception: a.exception.filter(|e| !e.trim().is_empty()),
+        failed_at: a.failed_at,
     }
 }
 
@@ -248,6 +364,8 @@ pub struct Usage {
     /// (threshold, remaining percentage)
     pub alert: Option<(i64, i64)>,
     pub applications: Vec<(String, i64)>,
+    /// Start and end of the billing period the spend is for.
+    pub period: Option<(DateTime<Utc>, DateTime<Utc>)>,
 }
 
 fn parse_usage(v: &serde_json::Value) -> Option<Usage> {
@@ -259,7 +377,7 @@ fn parse_usage(v: &serde_json::Value) -> Option<Usage> {
         .map(|apps| {
             apps.iter()
                 .filter_map(|a| {
-                    let name = ["name", "application_name", "application"]
+                    let name = ["name", "application_name", "application", "identifier"]
                         .iter()
                         .find_map(|k| a.get(*k).and_then(|n| n.as_str()))?;
                     let cents = ["total_cost_cents", "cost_cents"]
@@ -282,7 +400,19 @@ fn parse_usage(v: &serde_json::Value) -> Option<Usage> {
         alert: i("/data/summary/alert/threshold_cents")
             .zip(i("/data/summary/alert/remaining_percentage")),
         applications,
+        period: parse_usage_period(v),
     })
+}
+
+/// `meta.period` indexes `meta.available_periods`, each `{from, to}`.
+fn parse_usage_period(v: &serde_json::Value) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    let i = v
+        .pointer("/meta/period")
+        .and_then(|p| p.as_u64())
+        .unwrap_or(0) as usize;
+    let p = v.pointer("/meta/available_periods")?.get(i)?;
+    let t = |k: &str| p.get(k)?.as_str()?.parse::<DateTime<Utc>>().ok();
+    Some((t("from")?, t("to")?))
 }
 
 pub fn fmt_money(cents: i64, currency: &str) -> String {
@@ -396,6 +526,12 @@ impl Client {
                     .repository
                     .as_ref()
                     .and_then(|r| r.default_branch.clone()),
+                repository: app
+                    .attributes
+                    .repository
+                    .as_ref()
+                    .and_then(|r| r.full_name.clone())
+                    .filter(|n| n.contains('/')),
                 environments: envs
                     .into_iter()
                     .map(|e| Environment {
@@ -405,6 +541,7 @@ impl Client {
                         domain: e.attributes.vanity_domain.filter(|d| !d.is_empty()),
                         latest: None,
                         metrics: None,
+                        details: None,
                         recent_branches: vec![],
                     })
                     .collect(),
@@ -566,6 +703,67 @@ impl Client {
             .map(|_| ())
     }
 
+    /// Instances and domains of an environment, and the failed jobs of its
+    /// managed queues.
+    pub async fn env_details(&self, env_id: &str) -> Result<EnvDetails> {
+        let (ip, dp) = (
+            format!("/environments/{env_id}/instances"),
+            format!("/environments/{env_id}/domains"),
+        );
+        let (instances, domains) = tokio::join!(
+            self.get_all::<InstanceAttrs>(&ip),
+            self.get_all::<DomainAttrs>(&dp),
+        );
+        let instances: Vec<Instance> = instances?.into_iter().map(to_instance).collect();
+        let mut failed_jobs = vec![];
+        for i in instances.iter().filter(|i| i.kind == "managed_queue") {
+            match self
+                .get_all::<FailedJobAttrs>(&format!("/instances/{}/failed-jobs", i.id))
+                .await
+            {
+                Ok(jobs) => failed_jobs.extend(jobs.into_iter().map(|j| to_failed_job(&i.id, j))),
+                Err(e) => eprintln!("failed jobs for {}: {e:#}", i.id),
+            }
+        }
+        failed_jobs.sort_by_key(|j| std::cmp::Reverse(j.failed_at));
+        Ok(EnvDetails {
+            instances,
+            // Domains are optional: an error there should not hide the instances.
+            domains: domains
+                .map(|d| d.into_iter().map(to_domain).collect())
+                .unwrap_or_else(|e| {
+                    eprintln!("domains for {env_id}: {e:#}");
+                    vec![]
+                }),
+            failed_jobs,
+        })
+    }
+
+    pub async fn retry_failed_job(&self, instance_id: &str, job_id: &str) -> Result<()> {
+        let url = format!("{BASE}/instances/{instance_id}/failed-jobs/{job_id}/retry");
+        self.post_value(&url, serde_json::json!({}))
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn delete_failed_job(&self, instance_id: &str, job_id: &str) -> Result<()> {
+        let url = format!("{BASE}/instances/{instance_id}/failed-jobs/{job_id}");
+        let resp = self
+            .http
+            .delete(&url)
+            .bearer_auth(&self.token)
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .with_context(|| format!("DELETE {url}"))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            bail!("{status}: {}", api_error(&text));
+        }
+        Ok(())
+    }
+
     pub async fn stop_environment(&self, env_id: &str) -> Result<()> {
         let url = format!("{BASE}/environments/{env_id}/stop");
         self.post_value(&url, serde_json::json!({}))
@@ -658,6 +856,7 @@ mod tests {
             failure_reason: None,
             started_at: started.map(|s| s.parse().unwrap()),
             finished_at: None,
+            runtime: Default::default(),
         };
         let d = newest(vec![mk("a", Some("2026-11-11T10:00:00Z")), mk("b", None)]).unwrap();
         assert_eq!(d.id, "b");
@@ -676,6 +875,7 @@ mod tests {
             failure_reason: Some("Deployments are temporarily disabled".into()),
             started_at: started.map(|s| s.parse().unwrap()),
             finished_at: None,
+            runtime: Default::default(),
         };
         // An attempt rejected before it started, then a successful deploy.
         let d = newest(vec![
@@ -768,8 +968,77 @@ mod tests {
         assert_eq!(u.credits, None);
         assert_eq!(u.alert, Some((5000, 75)));
         assert_eq!(u.applications, vec![("Shop".to_string(), 1000)]);
+        assert_eq!(u.period, None);
         assert_eq!(fmt_money(u.spend_cents, &u.currency), "€12.34");
         assert_eq!(fmt_money(5, "CHF"), "0.05 CHF");
+    }
+
+    #[test]
+    fn parses_runtime_instances_domains_jobs() {
+        let d: Resource<DeployAttrs> = serde_json::from_value(serde_json::json!({"id":"d",
+            "attributes":{"status":"deployment.succeeded","php_major_version":"8.4",
+              "node_version":22,"uses_octane":true,"uses_hibernation":null}}))
+        .unwrap();
+        let r = to_deployment(d).runtime;
+        assert_eq!(r.summary(), "PHP 8.4 · Node 22 · Octane");
+
+        let i: Resource<InstanceAttrs> = serde_json::from_value(serde_json::json!({"id":"i",
+            "attributes":{"name":"web","type":"app","size":"flex-1gb","scaling_type":"auto",
+              "min_replicas":1,"max_replicas":3,"scaling_cpu_threshold_percentage":70,
+              "paused":false}}))
+        .unwrap();
+        let i = to_instance(i);
+        assert_eq!(i.kind_label(), "App");
+        assert_eq!(i.summary(), "web · flex-1gb · 1–3 replicas at CPU 70%");
+
+        let ok: Resource<DomainAttrs> = serde_json::from_value(serde_json::json!({"id":"x",
+            "attributes":{"name":"a.test","hostname_status":"verified","ssl_status":"verified",
+              "origin_status":"disabled"}}))
+        .unwrap();
+        assert_eq!(to_domain(ok).problem(), None);
+        let bad: Resource<DomainAttrs> = serde_json::from_value(serde_json::json!({"id":"y",
+            "attributes":{"name":"b.test","hostname_status":"verified","ssl_status":"failed",
+              "origin_status":"pending"}}))
+        .unwrap();
+        let bad = to_domain(bad);
+        assert_eq!(bad.problem().as_deref(), Some("SSL failed, origin pending"));
+        assert!(bad.failed());
+        let txt: Resource<DomainAttrs> = serde_json::from_value(serde_json::json!({"id":"z",
+            "attributes":{"name":"c.test","action_required":"add_txt_records"}}))
+        .unwrap();
+        assert_eq!(
+            to_domain(txt).problem().as_deref(),
+            Some("add TXT records to verify")
+        );
+
+        let j: Resource<FailedJobAttrs> = serde_json::from_value(serde_json::json!({"id":"j",
+            "attributes":{"name":"App\\Jobs\\Sync","queue":"default","attempts":3,
+              "exception":"Boom","failed_at":"2026-11-16T10:00:00Z"}}))
+        .unwrap();
+        let j = to_failed_job("i2", j);
+        assert_eq!((j.instance_id.as_str(), j.attempts), ("i2", 3));
+    }
+
+    #[test]
+    fn usage_applications_by_identifier() {
+        let v = serde_json::json!({"data":{"summary":{"current_spend_cents":1},
+            "application_totals":{"applications":[{"identifier":"shop","total_cost_cents":900}]}},
+            "meta":{}});
+        assert_eq!(
+            parse_usage(&v).unwrap().applications,
+            vec![("shop".to_string(), 900)]
+        );
+    }
+
+    #[test]
+    fn parses_usage_period() {
+        let v = serde_json::json!({"data":{"summary":{"current_spend_cents":1}},
+            "meta":{"period":1,"available_periods":[
+              {"from":"2026-11-01T00:00:00Z","to":"2026-11-30T23:59:59Z"},
+              {"from":"2026-10-01T00:00:00Z","to":"2026-10-31T23:59:59Z"}]}});
+        let (from, to) = parse_usage(&v).unwrap().period.unwrap();
+        assert_eq!(from.to_rfc3339(), "2026-10-01T00:00:00+00:00");
+        assert_eq!(to.to_rfc3339(), "2026-10-31T23:59:59+00:00");
     }
 
     #[test]

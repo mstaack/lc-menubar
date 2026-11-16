@@ -96,6 +96,16 @@ enum EnvAction {
     Start,
     Stop,
     Purge,
+    RetryJob {
+        instance_id: String,
+        job_id: String,
+        name: String,
+    },
+    DeleteJob {
+        instance_id: String,
+        job_id: String,
+        name: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -851,6 +861,18 @@ impl App {
                 "Purge",
                 "Edge cache purged",
             ),
+            EnvAction::RetryJob { name, .. } => (
+                "Retry failed job",
+                format!("Put the failed job {name} of {label} back on its queue?"),
+                "Retry",
+                "Job queued again",
+            ),
+            EnvAction::DeleteJob { name, .. } => (
+                "Delete failed job",
+                format!("Delete the failed job {name} of {label}? It will not run again."),
+                "Delete",
+                "Failed job deleted",
+            ),
         };
         if !menu_views::confirm(title, &question, button) {
             return;
@@ -883,6 +905,22 @@ impl App {
                     .map(|_| done.to_string()),
                 EnvAction::Purge => client
                     .purge_edge_cache(&env_id)
+                    .await
+                    .map(|_| done.to_string()),
+                EnvAction::RetryJob {
+                    instance_id,
+                    job_id,
+                    ..
+                } => client
+                    .retry_failed_job(&instance_id, &job_id)
+                    .await
+                    .map(|_| done.to_string()),
+                EnvAction::DeleteJob {
+                    instance_id,
+                    job_id,
+                    ..
+                } => client
+                    .delete_failed_job(&instance_id, &job_id)
                     .await
                     .map(|_| done.to_string()),
             };
@@ -1562,6 +1600,147 @@ fn fmt_pct_short(v: f64) -> String {
     }
 }
 
+/// Instances with their size and scaling.
+fn instances_card(instances: &[model::Instance]) -> Card {
+    Card::Status {
+        title: "Instances".into(),
+        dot: None,
+        lines: instances
+            .iter()
+            .map(|i| (truncate(&i.summary(), 52), Tone::Secondary))
+            .collect(),
+    }
+}
+
+/// Domains, with DNS / SSL problems spelled out; the dot is red on a failure,
+/// orange while something is pending.
+fn domains_card(domains: &[model::Domain]) -> Card {
+    let mut lines = vec![];
+    for d in domains {
+        match d.problem() {
+            None => lines.push((format!("{} ✓", d.name), Tone::Primary)),
+            Some(p) => {
+                let tone = if d.failed() {
+                    Tone::Negative
+                } else {
+                    Tone::Secondary
+                };
+                lines.push((truncate(&format!("{} · {p}", d.name), 52), tone));
+            }
+        }
+    }
+    let dot = if domains.iter().any(|d| d.failed()) {
+        charts::NEGATIVE
+    } else if domains.iter().any(|d| d.problem().is_some()) {
+        charts::WARNING
+    } else {
+        charts::POSITIVE
+    };
+    Card::Status {
+        title: "Domains".into(),
+        dot: Some(dot),
+        lines,
+    }
+}
+
+/// "Failed jobs (n)" with one submenu per job: its details, Retry and Delete.
+fn failed_jobs_menu(
+    b: &mut B,
+    env_id: &str,
+    jobs: &[model::FailedJob],
+    now: chrono::DateTime<Utc>,
+) -> Submenu {
+    let menu = Submenu::new(format!("Failed jobs ({})", jobs.len()), true);
+    for j in jobs.iter().take(20) {
+        let mut title = truncate(&j.name, 40);
+        if let Some(t) = j.failed_at {
+            title.push_str(&format!("  ·  {}", ago(t, now)));
+        }
+        let job = Submenu::new(title, true);
+        let mut info = vec![];
+        if let Some(q) = &j.queue {
+            info.push(format!("queue {q}"));
+        }
+        info.push(format!(
+            "{} attempt{}",
+            j.attempts,
+            if j.attempts == 1 { "" } else { "s" }
+        ));
+        let _ = job.append(&b.item(&info.join(" · "), None, None));
+        if let Some(e) = &j.exception {
+            for l in model::wrap(first_line(e), 60, 3) {
+                let _ = job.append(&b.item(&l, None, None));
+            }
+        }
+        let _ = job.append(&PredefinedMenuItem::separator());
+        let act = |a: EnvAction| {
+            Some(Action::Env {
+                env_id: env_id.to_string(),
+                action: a,
+            })
+        };
+        let _ = job.append(&b.item(
+            "Retry…",
+            act(EnvAction::RetryJob {
+                instance_id: j.instance_id.clone(),
+                job_id: j.id.clone(),
+                name: j.name.clone(),
+            }),
+            None,
+        ));
+        let _ = job.append(&b.item(
+            "Delete…",
+            act(EnvAction::DeleteJob {
+                instance_id: j.instance_id.clone(),
+                job_id: j.id.clone(),
+                name: j.name.clone(),
+            }),
+            None,
+        ));
+        let _ = menu.append(&job);
+    }
+    if jobs.len() > 20 {
+        let _ = menu.append(&b.item(&format!("{} more…", jobs.len() - 20), None, None));
+    }
+    menu
+}
+
+/// Cost per project, highest first (at most 6, the rest summed up).
+fn project_costs(u: &api::Usage) -> Vec<(String, String)> {
+    let mut apps: Vec<&(String, i64)> = u.applications.iter().filter(|(_, c)| *c > 0).collect();
+    apps.sort_by_key(|(_, c)| std::cmp::Reverse(*c));
+    let mut rows: Vec<(String, String)> = apps
+        .iter()
+        .take(6)
+        .map(|(n, c)| (truncate(n, 34), api::fmt_money(*c, &u.currency)))
+        .collect();
+    if apps.len() > 6 {
+        let rest: i64 = apps[6..].iter().map(|(_, c)| c).sum();
+        rows.push((
+            format!("{} more", apps.len() - 6),
+            api::fmt_money(rest, &u.currency),
+        ));
+    }
+    rows
+}
+
+/// GitHub page of a commit, showing its diff.
+fn commit_url(repo: &str, hash: &str) -> String {
+    format!("https://github.com/{repo}/commit/{hash}")
+}
+
+/// Billing period as `1 – 30 Nov` (or `15 Oct – 14 Nov`); periods are in UTC.
+fn fmt_period(from: chrono::DateTime<Utc>, to: chrono::DateTime<Utc>) -> String {
+    use chrono::Datelike;
+    if (from.year(), from.month()) == (to.year(), to.month()) {
+        format!("{} – {}", from.format("%-d"), to.format("%-d %b"))
+    } else if from.year() == to.year() {
+        format!("{} – {}", from.format("%-d %b"), to.format("%-d %b"))
+    } else {
+        format!("{} – {}", from.format("%-d %b %Y"), to.format("%-d %b %Y"))
+    }
+}
+
 const PERIODS: [Period; 4] = [Period::H1, Period::H6, Period::H24, Period::D7];
 
 fn period_label(p: Period) -> &'static str {
@@ -1807,7 +1986,7 @@ fn metric_cards(m: &Metrics, selected: Period) -> Vec<Card> {
 
 /// Credits for the About dialog and Settings.
 const AUTHOR_URL: &str = "https://github.com/mstaack";
-const ABOUT_TEXT: &str = "Made by Max (github.com/mstaack), 100% vibe-coded with Claude.\n\nLC Menubar is an independent project, not affiliated with Laravel Holdings Inc.";
+const ABOUT_TEXT: &str = "Made by Max in Hamburg, Germany (github.com/mstaack), 100% vibe-coded with Claude.\n\nLC Menubar is an independent project, not affiliated with Laravel Holdings Inc.";
 
 /// Text next to the status dot: the total spend, when enabled.
 fn menu_title(view: &Snapshot, settings: &Settings) -> Option<String> {
@@ -1847,6 +2026,10 @@ fn deployment_card(env: &Environment, now: chrono::DateTime<Utc>) -> Card {
         when.push(format!("environment {}", env.status));
     }
     lines.push((when.join(" · "), Tone::Secondary));
+    let runtime = d.runtime.summary();
+    if !runtime.is_empty() {
+        lines.push((runtime, Tone::Muted));
+    }
     if let Some(r) = d
         .failure_reason
         .as_deref()
@@ -1984,6 +2167,18 @@ fn build_menu(
             } else {
                 meta.push("no deployments".into());
             }
+            if let Some(n) = env
+                .details
+                .as_ref()
+                .map(|d| d.failed_jobs.len())
+                .filter(|n| *n > 0)
+            {
+                // First, so the row's truncation never hides it.
+                meta.insert(
+                    0,
+                    format!("{n} failed job{}", if n == 1 { "" } else { "s" }),
+                );
+            }
             let cpu = env
                 .metrics
                 .as_ref()
@@ -2047,6 +2242,14 @@ fn build_menu(
                         selected,
                     },
                 ));
+            }
+            if let Some(d) = &env.details {
+                if !d.instances.is_empty() {
+                    sub_cards.push((B::placeholder_in_sub(&sub), instances_card(&d.instances)));
+                }
+                if !d.domains.is_empty() {
+                    sub_cards.push((B::placeholder_in_sub(&sub), domains_card(&d.domains)));
+                }
             }
             let _ = sub.append(&PredefinedMenuItem::separator());
 
@@ -2121,6 +2324,14 @@ fn build_menu(
                 Some(Action::Window(WinKey::Vars(id.clone()))),
                 None,
             ));
+            if let Some(jobs) = env
+                .details
+                .as_ref()
+                .map(|d| &d.failed_jobs)
+                .filter(|j| !j.is_empty())
+            {
+                let _ = sub.append(&failed_jobs_menu(&mut b, &id, jobs, now));
+            }
             let _ = sub.append(&PredefinedMenuItem::separator());
             if let Some(domain) = &env.domain {
                 let url = if domain.starts_with("http") {
@@ -2131,11 +2342,18 @@ fn build_menu(
                 let _ = sub.append(&b.item("Open site", Some(Action::OpenUrl(url)), None));
             }
             if let Some(d) = env.latest.as_ref().filter(|d| !d.commit_hash.is_empty()) {
-                let _ = sub.append(&b.item(
-                    "Copy commit hash",
-                    Some(Action::Copy(d.commit_hash.clone())),
-                    None,
-                ));
+                let _ = sub.append(&match &app.repository {
+                    Some(repo) => b.item(
+                        "Open commit on GitHub",
+                        Some(Action::OpenUrl(commit_url(repo, &d.commit_hash))),
+                        None,
+                    ),
+                    None => b.item(
+                        "Copy commit hash",
+                        Some(Action::Copy(d.commit_hash.clone())),
+                        None,
+                    ),
+                });
             }
             let _ = sub.append(&PredefinedMenuItem::separator());
             let stopped = matches!(env.status.as_str(), "stopped");
@@ -2185,10 +2403,12 @@ fn build_menu(
                     api::fmt_money(threshold, &u.currency)
                 ));
             }
-            let title = if s.usage.len() > 1 && active.is_none() {
-                format!("{org} · spend this period")
-            } else {
-                "Spend this period".into()
+            let range = u.period.map(|(from, to)| fmt_period(from, to));
+            let title = match (s.usage.len() > 1 && active.is_none(), range) {
+                (true, Some(r)) => format!("{org} · spend {r}"),
+                (true, None) => format!("{org} · spend this period"),
+                (false, Some(r)) => format!("Spend {r}"),
+                (false, None) => "Spend this period".into(),
             };
             b.card_in_menu(
                 &menu,
@@ -2203,6 +2423,7 @@ fn build_menu(
                     meter: u
                         .bandwidth_pct
                         .and_then(|p| charts::meter(p as f64 / 100.0, chart_w(), 6.0)),
+                    rows: project_costs(u),
                 },
             );
         }
@@ -2268,6 +2489,68 @@ fn write_iconset(dir: &str) {
 }
 
 /// Sample data for `--demo` and `--preview-cards`.
+/// Instances, domains and failed jobs for the demo's storefront production.
+fn demo_details() -> model::EnvDetails {
+    use model::{Domain, FailedJob, Instance};
+    let instance = |id: &str, name: &str, kind: &str, size: &str| Instance {
+        id: id.into(),
+        name: name.into(),
+        kind: kind.into(),
+        size: Some(size.into()),
+        scaling: Some("auto".into()),
+        min_replicas: Some(1),
+        max_replicas: Some(3),
+        cpu_threshold: Some(70),
+        memory_threshold: None,
+        paused: false,
+    };
+    let domain = |name: &str, ssl: &str| Domain {
+        name: name.into(),
+        hostname_status: "verified".into(),
+        ssl_status: ssl.into(),
+        origin_status: "verified".into(),
+        action_required: None,
+    };
+    let job = |id: &str, name: &str, mins: i64, e: &str| FailedJob {
+        id: id.into(),
+        instance_id: "i2".into(),
+        name: name.into(),
+        queue: Some("default".into()),
+        attempts: 3,
+        exception: Some(e.into()),
+        failed_at: Some(Utc::now() - chrono::Duration::minutes(mins)),
+    };
+    model::EnvDetails {
+        instances: vec![
+            instance("i1", "web", "app", "flex-1gb"),
+            Instance {
+                scaling: Some("none".into()),
+                min_replicas: Some(1),
+                max_replicas: Some(1),
+                ..instance("i2", "jobs", "managed_queue", "flex-512mb")
+            },
+        ],
+        domains: vec![
+            domain("shop.northwind.example", "verified"),
+            domain("www.northwind.example", "pending"),
+        ],
+        failed_jobs: vec![
+            job(
+                "j1",
+                "App\\Jobs\\SyncInventory",
+                8,
+                "GuzzleHttp\\Exception\\ConnectException: cURL error 28: Operation timed out after 30001 milliseconds",
+            ),
+            job(
+                "j2",
+                "App\\Mail\\OrderShipped",
+                95,
+                "Symfony\\Component\\Mailer\\Exception\\TransportException: Connection refused",
+            ),
+        ],
+    }
+}
+
 fn demo_snapshot(period: Period) -> Snapshot {
     use model::{Application, Deployment, Metric, Series};
     // Longer ranges show slower, broader waves so switching visibly changes the charts.
@@ -2356,6 +2639,12 @@ fn demo_snapshot(period: Period) -> Snapshot {
         started_at: Some(Utc::now() - chrono::Duration::minutes(mins + 3)),
         finished_at: (status != "build.running")
             .then(|| Utc::now() - chrono::Duration::minutes(mins)),
+        runtime: model::Runtime {
+            php: Some("8.4".into()),
+            node: Some("22".into()),
+            octane: branch == "main",
+            hibernation: false,
+        },
     };
     let env = |id: &str, name: &str, d: Deployment, m: Option<Metrics>| Environment {
         id: id.into(),
@@ -2365,6 +2654,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
         recent_branches: vec![d.branch.clone(), "release/2.4".into()],
         latest: Some(d),
         metrics: m,
+        details: None,
     };
     let usage = api::Usage {
         currency: "USD".into(),
@@ -2372,7 +2662,16 @@ fn demo_snapshot(period: Period) -> Snapshot {
         bandwidth_pct: Some(42),
         credits: None,
         alert: Some((10_000, 52)),
-        applications: vec![],
+        applications: vec![("storefront".into(), 3_140), ("admin-api".into(), 1_672)],
+        period: {
+            use chrono::{Datelike, TimeZone};
+            let now = Utc::now();
+            let start = Utc
+                .with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0)
+                .unwrap();
+            let next = start + chrono::Months::new(1);
+            Some((start, next - chrono::Duration::seconds(1)))
+        },
     };
     Snapshot {
         apps: vec![
@@ -2382,6 +2681,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                 org: "Northwind".into(),
                 name: "storefront".into(),
                 default_branch: Some("main".into()),
+                repository: Some("northwind/shop".into()),
                 environments: vec![
                     env(
                         "e1",
@@ -2393,7 +2693,8 @@ fn demo_snapshot(period: Period) -> Snapshot {
                             14,
                         ),
                         Some(metrics(23.0, 61.0, 410.0, 0.0)),
-                    ),
+                    )
+                    .with_details(demo_details()),
                     env(
                         "e2",
                         "staging",
@@ -2413,6 +2714,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                 org: "Northwind".into(),
                 name: "admin-api".into(),
                 default_branch: None,
+                repository: None,
                 environments: vec![env(
                     "e3",
                     "production",
@@ -2426,6 +2728,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                 org: "Acme".into(),
                 name: "marketing-site".into(),
                 default_branch: None,
+                repository: None,
                 environments: vec![env(
                     "e4",
                     "production",
@@ -2445,6 +2748,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                 api::Usage {
                     spend_cents: 1_207,
                     bandwidth_pct: Some(9),
+                    applications: vec![("marketing-site".into(), 1_207)],
                     ..usage
                 },
             ),
@@ -2531,17 +2835,23 @@ fn preview_cards(dir: &str) {
             failure_reason: None,
             started_at: Some(Utc::now() - chrono::Duration::minutes(14)),
             finished_at: Some(Utc::now() - chrono::Duration::minutes(12)),
+            runtime: Default::default(),
         }),
         metrics: None,
+        details: None,
         recent_branches: vec![],
     };
     let mut cards = vec![deployment_card(&env, Utc::now())];
     cards.extend(metric_cards(&m, Period::H1));
     cards.push(Card::Spend {
-        title: "Spend this period".into(),
+        title: "Spend 1 – 30 Nov".into(),
         value: api::fmt_money(4_812, "USD"),
         caption: "Bandwidth 42% · alert at $100.00".into(),
         meter: charts::meter(0.42, chart_w(), 6.0),
+        rows: vec![
+            ("storefront".into(), "$31.40".into()),
+            ("admin-api".into(), "$16.72".into()),
+        ],
     });
     let _ = std::fs::create_dir_all(dir);
     for dark in [false, true] {
@@ -2577,5 +2887,31 @@ fn set_status_icon(tray: &TrayIcon, light: Light) {
     let (rgba, w, h) = charts::status_icon(true, dot, false);
     if let Ok(icon) = Icon::from_rgba(rgba, w, h) {
         let _ = tray.set_icon(Some(icon));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_billing_period() {
+        let d = |s: &str| s.parse::<chrono::DateTime<Utc>>().unwrap();
+        assert_eq!(
+            fmt_period(d("2026-11-01T00:00:00Z"), d("2026-11-30T23:59:59Z")),
+            "1 – 30 Nov"
+        );
+        assert_eq!(
+            fmt_period(d("2026-10-15T00:00:00Z"), d("2026-11-14T23:59:59Z")),
+            "15 Oct – 14 Nov"
+        );
+        assert_eq!(
+            fmt_period(d("2026-12-15T00:00:00Z"), d("2027-01-14T23:59:59Z")),
+            "15 Dec 2026 – 14 Jan 2027"
+        );
+        assert_eq!(
+            commit_url("acme/shop", "abc123"),
+            "https://github.com/acme/shop/commit/abc123"
+        );
     }
 }

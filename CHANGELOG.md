@@ -7,6 +7,20 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Added
+
+- The deployment card shows the PHP and Node versions, and whether Octane or hibernation is on.
+- The spend card lists what each project cost this period.
+- Each environment shows its instances with size and scaling (replicas, autoscaling thresholds).
+- Each environment lists its domains and warns when DNS, SSL or the origin needs attention.
+- Failed jobs of managed queues appear in the environment's menu, where you can retry or delete them.
+
+### Changed
+
+- The spend card shows the dates of the current billing period.
+- "Copy commit hash" is now "Open commit on GitHub", which opens the latest deployment's commit and its diff (projects without a GitHub repository still copy the hash).
+- Settings now say where LC Menubar is made: Hamburg, Germany.
+
 ## [0.1.6] - 2026-11-11
 
 ### Fixed

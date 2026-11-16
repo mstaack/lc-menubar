@@ -356,7 +356,7 @@ footer.status:has(.msg:empty){display:none}
     </div>
     <h2>About</h2>
     <div class="card">
-      <div class="row"><div class="grow">Made by Max<span class="hint">100% vibe-coded with Claude</span></div><button id="author">github.com/mstaack</button></div>
+      <div class="row"><div class="grow">Made by Max in Hamburg, Germany<span class="hint">100% vibe-coded with Claude</span></div><button id="author">github.com/mstaack</button></div>
       <div class="row t3" style="min-height:40px">LC Menubar is an independent project. It is not affiliated with, endorsed or sponsored by Laravel Holdings Inc. Laravel is a trademark of Laravel Holdings Inc.</div>
     </div>
   </section>
