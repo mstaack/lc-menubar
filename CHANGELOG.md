@@ -10,6 +10,7 @@ What's new page in Settings, are taken from this file.
 ### Changed
 
 - The instances list is gone from the environment menu; it added more noise than help.
+- The domains list is gone from the environment menu too.
 
 ## [0.1.8] - 2026-11-16
 

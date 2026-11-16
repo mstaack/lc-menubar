@@ -104,11 +104,10 @@ impl Runtime {
     }
 }
 
-/// Compute instances, domains and failed queue jobs of an environment.
+/// Compute instances and failed queue jobs of an environment.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EnvDetails {
     pub instances: Vec<Instance>,
-    pub domains: Vec<Domain>,
     pub failed_jobs: Vec<FailedJob>,
 }
 
@@ -117,50 +116,6 @@ pub struct Instance {
     pub id: String,
     /// `app`, `service`, `queue` or `managed_queue`.
     pub kind: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Domain {
-    pub name: String,
-    pub hostname_status: String,
-    pub ssl_status: String,
-    pub origin_status: String,
-    pub action_required: Option<String>,
-}
-
-impl Domain {
-    /// What needs attention, or `None` when DNS, SSL and origin are verified.
-    pub fn problem(&self) -> Option<String> {
-        if let Some(a) = &self.action_required {
-            return Some(
-                match a.as_str() {
-                    "add_txt_records" => "add TXT records to verify",
-                    "add_dns_records" => "add DNS records",
-                    "failed" => "verification failed",
-                    other => other,
-                }
-                .to_string(),
-            );
-        }
-        let checks = [
-            ("DNS", &self.hostname_status),
-            ("SSL", &self.ssl_status),
-            ("origin", &self.origin_status),
-        ];
-        let bad: Vec<String> = checks
-            .iter()
-            .filter(|(_, s)| !matches!(s.as_str(), "verified" | "disabled" | ""))
-            .map(|(k, s)| format!("{k} {s}"))
-            .collect();
-        (!bad.is_empty()).then(|| bad.join(", "))
-    }
-
-    pub fn failed(&self) -> bool {
-        self.action_required.as_deref() == Some("failed")
-            || [&self.hostname_status, &self.ssl_status, &self.origin_status]
-                .iter()
-                .any(|s| s.as_str() == "failed")
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -204,7 +159,7 @@ pub struct Environment {
     pub domain: Option<String>,
     pub latest: Option<Deployment>,
     pub metrics: Option<Metrics>,
-    /// Instances, domains and failed jobs (fetched less often than deployments).
+    /// Instances and failed jobs (fetched less often than deployments).
     pub details: Option<EnvDetails>,
     /// Branches of recent deployments, newest first (offered when switching branch).
     pub recent_branches: Vec<String>,

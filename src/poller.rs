@@ -62,7 +62,7 @@ struct Poller {
     usage: HashMap<String, (Usage, Instant)>,
     /// Metrics per (environment, range), so switching back to a range is instant.
     metrics: HashMap<(String, crate::model::Period), (Metrics, Instant)>,
-    /// Instances, domains and failed jobs per environment.
+    /// Instances and failed jobs per environment.
     details: HashMap<String, (EnvDetails, Instant)>,
     prev_index: Option<HashMap<String, (String, Phase)>>,
     last: Snapshot,

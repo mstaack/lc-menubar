@@ -1600,37 +1600,6 @@ fn fmt_pct_short(v: f64) -> String {
     }
 }
 
-/// Domains, with DNS / SSL problems spelled out; the dot is red on a failure,
-/// orange while something is pending.
-fn domains_card(domains: &[model::Domain]) -> Card {
-    let mut lines = vec![];
-    for d in domains {
-        match d.problem() {
-            None => lines.push((format!("{} ✓", d.name), Tone::Primary)),
-            Some(p) => {
-                let tone = if d.failed() {
-                    Tone::Negative
-                } else {
-                    Tone::Secondary
-                };
-                lines.push((truncate(&format!("{} · {p}", d.name), 52), tone));
-            }
-        }
-    }
-    let dot = if domains.iter().any(|d| d.failed()) {
-        charts::NEGATIVE
-    } else if domains.iter().any(|d| d.problem().is_some()) {
-        charts::WARNING
-    } else {
-        charts::POSITIVE
-    };
-    Card::Status {
-        title: "Domains".into(),
-        dot: Some(dot),
-        lines,
-    }
-}
-
 /// "Failed jobs (n)" with one submenu per job: its details, Retry and Delete.
 fn failed_jobs_menu(
     b: &mut B,
@@ -2201,11 +2170,6 @@ fn build_menu(
                     },
                 ));
             }
-            if let Some(d) = &env.details
-                && !d.domains.is_empty()
-            {
-                sub_cards.push((B::placeholder_in_sub(&sub), domains_card(&d.domains)));
-            }
             let _ = sub.append(&PredefinedMenuItem::separator());
 
             let building = env
@@ -2397,19 +2361,12 @@ fn write_iconset(dir: &str) {
 }
 
 /// Sample data for `--demo` and `--preview-cards`.
-/// Instances, domains and failed jobs for the demo's storefront production.
+/// Instances and failed jobs for the demo's storefront production.
 fn demo_details() -> model::EnvDetails {
-    use model::{Domain, FailedJob, Instance};
+    use model::{FailedJob, Instance};
     let instance = |id: &str, kind: &str| Instance {
         id: id.into(),
         kind: kind.into(),
-    };
-    let domain = |name: &str, ssl: &str| Domain {
-        name: name.into(),
-        hostname_status: "verified".into(),
-        ssl_status: ssl.into(),
-        origin_status: "verified".into(),
-        action_required: None,
     };
     let job = |id: &str, name: &str, mins: i64, e: &str| FailedJob {
         id: id.into(),
@@ -2422,10 +2379,6 @@ fn demo_details() -> model::EnvDetails {
     };
     model::EnvDetails {
         instances: vec![instance("i1", "app"), instance("i2", "managed_queue")],
-        domains: vec![
-            domain("shop.northwind.example", "verified"),
-            domain("www.northwind.example", "pending"),
-        ],
         failed_jobs: vec![
             job(
                 "j1",

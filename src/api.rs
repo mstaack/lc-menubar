@@ -1,8 +1,8 @@
 //! Minimal Laravel Cloud API client (JSON:API over https://cloud.laravel.com/api).
 
 use crate::model::{
-    Application, Deployment, Domain, EnvDetails, Environment, FailedJob, Instance, Metric, Metrics,
-    Period, Runtime, Series,
+    Application, Deployment, EnvDetails, Environment, FailedJob, Instance, Metric, Metrics, Period,
+    Runtime, Series,
 };
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
@@ -117,16 +117,6 @@ struct InstanceAttrs {
 }
 
 #[derive(Deserialize)]
-struct DomainAttrs {
-    #[serde(default)]
-    name: String,
-    hostname_status: Option<String>,
-    ssl_status: Option<String>,
-    origin_status: Option<String>,
-    action_required: Option<String>,
-}
-
-#[derive(Deserialize)]
 struct FailedJobAttrs {
     name: Option<String>,
     queue: Option<String>,
@@ -139,18 +129,6 @@ fn to_instance(r: Resource<InstanceAttrs>) -> Instance {
     Instance {
         id: r.id,
         kind: r.attributes.kind,
-    }
-}
-
-fn to_domain(r: Resource<DomainAttrs>) -> Domain {
-    let a = r.attributes;
-    let s = |v: Option<String>| v.unwrap_or_else(|| "pending".into());
-    Domain {
-        name: a.name,
-        hostname_status: s(a.hostname_status),
-        ssl_status: s(a.ssl_status),
-        origin_status: s(a.origin_status),
-        action_required: a.action_required.filter(|x| !x.is_empty()),
     }
 }
 
@@ -675,18 +653,12 @@ impl Client {
             .map(|_| ())
     }
 
-    /// Instances and domains of an environment, and the failed jobs of its
-    /// managed queues.
+    /// Instances of an environment and the failed jobs of its managed queues.
     pub async fn env_details(&self, env_id: &str) -> Result<EnvDetails> {
-        let (ip, dp) = (
-            format!("/environments/{env_id}/instances"),
-            format!("/environments/{env_id}/domains"),
-        );
-        let (instances, domains) = tokio::join!(
-            self.get_all::<InstanceAttrs>(&ip),
-            self.get_all::<DomainAttrs>(&dp),
-        );
-        let instances: Vec<Instance> = instances?.into_iter().map(to_instance).collect();
+        let instances = self
+            .get_all::<InstanceAttrs>(&format!("/environments/{env_id}/instances"))
+            .await?;
+        let instances: Vec<Instance> = instances.into_iter().map(to_instance).collect();
         let mut failed_jobs = vec![];
         for i in instances.iter().filter(|i| i.kind == "managed_queue") {
             match self
@@ -700,13 +672,6 @@ impl Client {
         failed_jobs.sort_by_key(|j| std::cmp::Reverse(j.failed_at));
         Ok(EnvDetails {
             instances,
-            // Domains are optional: an error there should not hide the instances.
-            domains: domains
-                .map(|d| d.into_iter().map(to_domain).collect())
-                .unwrap_or_else(|e| {
-                    eprintln!("domains for {env_id}: {e:#}");
-                    vec![]
-                }),
             failed_jobs,
         })
     }
@@ -946,7 +911,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_runtime_instances_domains_jobs() {
+    fn parses_runtime_instances_jobs() {
         let d: Resource<DeployAttrs> = serde_json::from_value(serde_json::json!({"id":"d",
             "attributes":{"status":"deployment.succeeded","php_major_version":"8.4",
               "node_version":22,"uses_octane":true,"uses_hibernation":null}}))
@@ -961,26 +926,6 @@ mod tests {
         .unwrap();
         let i = to_instance(i);
         assert_eq!((i.id.as_str(), i.kind.as_str()), ("i", "app"));
-
-        let ok: Resource<DomainAttrs> = serde_json::from_value(serde_json::json!({"id":"x",
-            "attributes":{"name":"a.test","hostname_status":"verified","ssl_status":"verified",
-              "origin_status":"disabled"}}))
-        .unwrap();
-        assert_eq!(to_domain(ok).problem(), None);
-        let bad: Resource<DomainAttrs> = serde_json::from_value(serde_json::json!({"id":"y",
-            "attributes":{"name":"b.test","hostname_status":"verified","ssl_status":"failed",
-              "origin_status":"pending"}}))
-        .unwrap();
-        let bad = to_domain(bad);
-        assert_eq!(bad.problem().as_deref(), Some("SSL failed, origin pending"));
-        assert!(bad.failed());
-        let txt: Resource<DomainAttrs> = serde_json::from_value(serde_json::json!({"id":"z",
-            "attributes":{"name":"c.test","action_required":"add_txt_records"}}))
-        .unwrap();
-        assert_eq!(
-            to_domain(txt).problem().as_deref(),
-            Some("add TXT records to verify")
-        );
 
         let j: Resource<FailedJobAttrs> = serde_json::from_value(serde_json::json!({"id":"j",
             "attributes":{"name":"App\\Jobs\\Sync","queue":"default","attempts":3,
