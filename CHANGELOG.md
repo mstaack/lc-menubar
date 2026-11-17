@@ -7,6 +7,10 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Changed
+
+- The bandwidth row in the menu now reads "Bandwidth used" and shows the extra cost in brackets once you go over your plan's allowance.
+
 ## [0.1.10] - 2026-11-16
 
 ### Added

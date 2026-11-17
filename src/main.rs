@@ -1668,6 +1668,18 @@ fn commit_url(repo: &str, hash: &str) -> String {
 }
 
 /// Billing period as `1 – 30 Nov` (or `15 Oct – 14 Nov`); periods are in UTC.
+/// "88%", or "112% ($3.40)" once bandwidth beyond the allowance costs extra.
+fn fmt_bandwidth(pct: i64, u: &api::Usage) -> String {
+    if u.bandwidth_cost_cents > 0 {
+        format!(
+            "{pct}% ({})",
+            api::fmt_money(u.bandwidth_cost_cents, &u.currency)
+        )
+    } else {
+        format!("{pct}%")
+    }
+}
+
 fn fmt_period(from: chrono::DateTime<Utc>, to: chrono::DateTime<Utc>) -> String {
     use chrono::Datelike;
     if (from.year(), from.month()) == (to.year(), to.month()) {
@@ -2328,7 +2340,7 @@ fn build_menu(
             };
             let mut items = vec![(label, api::fmt_money(u.spend_cents, &u.currency))];
             if let Some(bw) = u.bandwidth_pct {
-                items.push(("Bandwidth".into(), format!("{bw}%")));
+                items.push(("Bandwidth used".into(), fmt_bandwidth(bw, u)));
             }
             b.card_in_menu(&menu, Card::Stats { items });
         }
@@ -2537,7 +2549,8 @@ fn demo_snapshot(period: Period) -> Snapshot {
     let usage = api::Usage {
         currency: "USD".into(),
         spend_cents: 4_812,
-        bandwidth_pct: Some(42),
+        bandwidth_pct: Some(112),
+        bandwidth_cost_cents: 340,
         credits: None,
         alert: Some((10_000, 52)),
         applications: vec![("storefront".into(), 3_140), ("admin-api".into(), 1_672)],
@@ -2626,6 +2639,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                 api::Usage {
                     spend_cents: 1_207,
                     bandwidth_pct: Some(9),
+                    bandwidth_cost_cents: 0,
                     applications: vec![("marketing-site".into(), 1_207)],
                     ..usage
                 },
@@ -2761,6 +2775,23 @@ fn set_status_icon(tray: &TrayIcon, light: Light) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_bandwidth_with_extra_cost_only_when_charged() {
+        let mut u = api::Usage {
+            currency: "USD".into(),
+            spend_cents: 0,
+            bandwidth_pct: Some(88),
+            bandwidth_cost_cents: 0,
+            credits: None,
+            alert: None,
+            applications: vec![],
+            period: None,
+        };
+        assert_eq!(fmt_bandwidth(88, &u), "88%");
+        u.bandwidth_cost_cents = 340;
+        assert_eq!(fmt_bandwidth(112, &u), "112% ($3.40)");
+    }
 
     #[test]
     fn formats_billing_period() {

@@ -310,6 +310,8 @@ pub struct Usage {
     pub currency: String,
     pub spend_cents: i64,
     pub bandwidth_pct: Option<i64>,
+    /// Extra cost for bandwidth beyond the plan's allowance.
+    pub bandwidth_cost_cents: i64,
     pub credits: Option<(i64, i64)>,
     /// (threshold, remaining percentage)
     pub alert: Option<(i64, i64)>,
@@ -346,6 +348,7 @@ fn parse_usage(v: &serde_json::Value) -> Option<Usage> {
             .to_string(),
         spend_cents: summary.get("current_spend_cents")?.as_i64()?,
         bandwidth_pct: i("/data/summary/bandwidth/usage_percentage"),
+        bandwidth_cost_cents: i("/data/summary/bandwidth/cost_cents").unwrap_or(0),
         credits: i("/data/summary/credits/used_cents").zip(i("/data/summary/credits/total_cents")),
         alert: i("/data/summary/alert/threshold_cents")
             .zip(i("/data/summary/alert/remaining_percentage")),
@@ -902,6 +905,7 @@ mod tests {
         let u = parse_usage(&v).unwrap();
         assert_eq!(u.spend_cents, 1234);
         assert_eq!(u.bandwidth_pct, Some(42));
+        assert_eq!(u.bandwidth_cost_cents, 0);
         assert_eq!(u.credits, None);
         assert_eq!(u.alert, Some((5000, 75)));
         assert_eq!(u.applications, vec![("Shop".to_string(), 1000)]);
