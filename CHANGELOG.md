@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-11-17
+
 ### Changed
 
 - The bandwidth row in the menu now reads "Bandwidth used" and shows the extra cost in brackets once you go over your plan's allowance.
@@ -118,7 +120,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.11...HEAD
+[0.1.11]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.11
 [0.1.10]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.10
 [0.1.9]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.9
 [0.1.8]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.8
