@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-11-19
+
 ### Added
 
 - "Delete all…" at the top of an environment's Failed jobs menu clears every failed job at once.
@@ -124,7 +126,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.11...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.12
 [0.1.11]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.11
 [0.1.10]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.10
 [0.1.9]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.9
