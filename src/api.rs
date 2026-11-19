@@ -687,10 +687,31 @@ impl Client {
     }
 
     pub async fn delete_failed_job(&self, instance_id: &str, job_id: &str) -> Result<()> {
-        let url = format!("{BASE}/instances/{instance_id}/failed-jobs/{job_id}");
+        self.delete(&format!(
+            "{BASE}/instances/{instance_id}/failed-jobs/{job_id}"
+        ))
+        .await
+    }
+
+    /// Delete every job of a managed queue that failed before `before`. The API
+    /// answers 202 and deletes in the background.
+    pub async fn delete_failed_jobs_before(
+        &self,
+        instance_id: &str,
+        before: DateTime<Utc>,
+    ) -> Result<()> {
+        let before = before.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        // RFC 3339 in UTC (`2026-11-19T10:00:00Z`) needs no escaping in a query.
+        self.delete(&format!(
+            "{BASE}/instances/{instance_id}/failed-jobs?failedBefore={before}"
+        ))
+        .await
+    }
+
+    async fn delete(&self, url: &str) -> Result<()> {
         let resp = self
             .http
-            .delete(&url)
+            .delete(url)
             .bearer_auth(&self.token)
             .header("Accept", "application/json")
             .send()

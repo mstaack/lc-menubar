@@ -106,6 +106,11 @@ enum EnvAction {
         job_id: String,
         name: String,
     },
+    /// Delete every failed job of these managed queues (`count` as last seen).
+    DeleteAllJobs {
+        instance_ids: Vec<String>,
+        count: usize,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -873,6 +878,15 @@ impl App {
                 "Delete",
                 "Failed job deleted",
             ),
+            EnvAction::DeleteAllJobs { count, .. } => (
+                "Delete all failed jobs",
+                format!(
+                    "Delete all {count} failed job{} of {label}? They will not run again.",
+                    if *count == 1 { "" } else { "s" }
+                ),
+                "Delete all",
+                "Failed jobs are being deleted",
+            ),
         };
         if !menu_views::confirm(title, &question, button) {
             return;
@@ -923,6 +937,17 @@ impl App {
                     .delete_failed_job(&instance_id, &job_id)
                     .await
                     .map(|_| done.to_string()),
+                EnvAction::DeleteAllJobs { instance_ids, .. } => {
+                    let before = Utc::now();
+                    let mut result = Ok(done.to_string());
+                    for id in &instance_ids {
+                        if let Err(e) = client.delete_failed_jobs_before(id, before).await {
+                            result = Err(e);
+                            break;
+                        }
+                    }
+                    result
+                }
             };
             let (t, b) = match result {
                 Ok(msg) => (label.clone(), msg),
@@ -1608,6 +1633,24 @@ fn failed_jobs_menu(
     now: chrono::DateTime<Utc>,
 ) -> Submenu {
     let menu = Submenu::new(format!("Failed jobs ({})", jobs.len()), true);
+    let act = |a: EnvAction| {
+        Some(Action::Env {
+            env_id: env_id.to_string(),
+            action: a,
+        })
+    };
+    let mut instance_ids: Vec<String> = jobs.iter().map(|j| j.instance_id.clone()).collect();
+    instance_ids.sort();
+    instance_ids.dedup();
+    let _ = menu.append(&b.item(
+        "Delete all…",
+        act(EnvAction::DeleteAllJobs {
+            instance_ids,
+            count: jobs.len(),
+        }),
+        None,
+    ));
+    let _ = menu.append(&PredefinedMenuItem::separator());
     for j in jobs.iter().take(20) {
         let mut title = truncate(&j.name, 40);
         if let Some(t) = j.failed_at {
@@ -1630,12 +1673,6 @@ fn failed_jobs_menu(
             }
         }
         let _ = job.append(&PredefinedMenuItem::separator());
-        let act = |a: EnvAction| {
-            Some(Action::Env {
-                env_id: env_id.to_string(),
-                action: a,
-            })
-        };
         let _ = job.append(&b.item(
             "Retry…",
             act(EnvAction::RetryJob {

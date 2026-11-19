@@ -7,6 +7,10 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Added
+
+- "Delete all…" at the top of an environment's Failed jobs menu clears every failed job at once.
+
 ## [0.1.11] - 2026-11-17
 
 ### Changed
