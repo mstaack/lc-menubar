@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-11-20
+
 ### Fixed
 
 - Project costs now show up in the menu; 0.1.13 matched them to the wrong field and showed none.
@@ -137,7 +139,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.13...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.14...HEAD
+[0.1.14]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.14
 [0.1.13]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.13
 [0.1.12]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.12
 [0.1.11]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.11
