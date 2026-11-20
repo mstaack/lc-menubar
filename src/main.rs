@@ -118,7 +118,15 @@ enum Action {
     Refresh,
     OpenUrl(String),
     Copy(String),
-    Env { env_id: String, action: EnvAction },
+    /// Show long text (e.g. a deployment's failure reason) in a dialog.
+    ShowText {
+        title: String,
+        text: String,
+    },
+    Env {
+        env_id: String,
+        action: EnvAction,
+    },
     Window(WinKey),
     Update,
     About,
@@ -640,6 +648,7 @@ impl App {
             }
             Action::OpenUrl(u) => system::open_url(&u),
             Action::Copy(t) => menu_views::copy_text(&t),
+            Action::ShowText { title, text } => menu_views::alert(&title, &text),
             Action::Env { env_id, action } => self.env_action(env_id, action),
             Action::Window(key) => self.open(key, target),
             Action::Update => self.install_update(),
@@ -1699,6 +1708,22 @@ fn failed_jobs_menu(
     menu
 }
 
+/// This billing period's cost of `app`, from its organization's usage.
+fn app_spend(s: &Snapshot, app: &model::Application) -> Option<String> {
+    // Usage names apps by identifier (a slug) or name; compare both as slugs.
+    let slug = |n: &str| {
+        n.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .join("-")
+    };
+    let name = slug(&app.name);
+    let (_, _, u) = s.usage.iter().find(|(acc, _, _)| *acc == app.account)?;
+    let (_, cents) = u.applications.iter().find(|(n, _)| slug(n) == name)?;
+    Some(api::fmt_money(*cents, &u.currency))
+}
+
 /// GitHub page of a commit, showing its diff.
 fn commit_url(repo: &str, hash: &str) -> String {
     format!("https://github.com/{repo}/commit/{hash}")
@@ -2143,7 +2168,14 @@ fn build_menu(
             app.name.clone()
         };
         b.owned.push((menu.items().len(), app.account.clone()));
-        b.card_in_menu(&menu, Card::Heading { text: heading });
+        let right = settings.show_spend.then(|| app_spend(s, app)).flatten();
+        b.card_in_menu(
+            &menu,
+            Card::Heading {
+                text: heading,
+                right,
+            },
+        );
 
         for env in envs {
             let mut meta = vec![];
@@ -2201,6 +2233,23 @@ fn build_menu(
 
             // Submenu: deployment card, metrics cards, range, actions.
             sub_cards.push((B::placeholder_in_sub(&sub), deployment_card(env, now)));
+            if let Some((d, reason)) = env.latest.as_ref().and_then(|d| {
+                let r = d.failure_reason.as_deref()?.trim();
+                (d.phase() == Phase::Failed && !r.is_empty()).then_some((d, r))
+            }) {
+                let _ = sub.append(&b.item(
+                    "Show error…",
+                    Some(Action::ShowText {
+                        title: format!("Deployment {} failed", d.short_hash()),
+                        // A dialog can't scroll; Copy error has the full text.
+                        text: truncate(reason, 2000),
+                    }),
+                    None,
+                ));
+                let _ =
+                    sub.append(&b.item("Copy error", Some(Action::Copy(reason.to_string())), None));
+                let _ = sub.append(&PredefinedMenuItem::separator());
+            }
             if settings.metrics_enabled {
                 match &env.metrics {
                     Some(m) => {
@@ -2561,8 +2610,13 @@ fn demo_snapshot(period: Period) -> Snapshot {
         commit_hash: "8f3c2a91d4e2".into(),
         commit_message: msg.into(),
         commit_author: Some("Mia Lorenz".into()),
-        failure_reason: (status == "build.failed")
-            .then(|| "npm run build exited with code 1".into()),
+        failure_reason: (status == "build.failed").then(|| {
+            "npm run build exited with code 1\n\n\
+                 [vite]: Rollup failed to resolve import \"@/components/CheckoutSummary.vue\" \
+                 from \"/var/www/html/resources/js/Pages/Checkout/Index.vue\". This is most \
+                 likely unintended because it can break your application at runtime."
+                .into()
+        }),
         started_at: Some(Utc::now() - chrono::Duration::minutes(mins + 3)),
         finished_at: (status != "build.running")
             .then(|| Utc::now() - chrono::Duration::minutes(mins)),

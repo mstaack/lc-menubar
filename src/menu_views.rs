@@ -23,8 +23,9 @@ pub enum Tone {
 }
 
 pub enum Card {
-    /// Small section heading, like the app name above its environments.
-    Heading { text: String },
+    /// Small section heading, like the app name above its environments, with
+    /// an optional muted value on the right (e.g. the app's spend).
+    Heading { text: String, right: Option<String> },
     /// A status line with a colored dot, then a few lines of text.
     Status {
         title: String,
@@ -67,7 +68,7 @@ impl Card {
             c.map(|c| (c.0, c.1, c.2, c.3)).hash(h)
         };
         match self {
-            Card::Heading { text } => (0u8, text).hash(&mut h),
+            Card::Heading { text, right } => (0u8, text, right).hash(&mut h),
             Card::Status { title, dot, lines } => {
                 (1u8, title).hash(&mut h);
                 rgba(dot, &mut h);
@@ -389,9 +390,36 @@ mod imp {
         };
         let w = Layout::inner_w();
         match card {
-            Card::Heading { text } => {
+            Card::Heading { text, right } => {
                 let mut l = Layout::new(mtm, 6.0);
-                l.text(text, 11.0, Tone::Secondary, semibold, 14.0);
+                let Some(right) = right else {
+                    l.text(text, 11.0, Tone::Secondary, semibold, 14.0);
+                    return l.finish(2.0);
+                };
+                let t = label(mtm, text, 11.0, Tone::Secondary, semibold);
+                let r = label(mtm, right, 11.0, Tone::Muted, regular);
+                r.setAlignment(NSTextAlignment::Right);
+                // Room to spare: a field cut to its exact width truncates.
+                let rw = r.intrinsicContentSize().width.ceil() + 6.0;
+                let y = l.y;
+                l.put(
+                    t.into_super().into_super(),
+                    INSET,
+                    y,
+                    w - rw - 8.0,
+                    14.0,
+                    Anchor::Stretch,
+                );
+                l.put(
+                    r.into_super().into_super(),
+                    // +2: text fields inset their text 2 pt; end on the card edge.
+                    INSET + w - rw + 2.0,
+                    y,
+                    rw,
+                    14.0,
+                    Anchor::Right,
+                );
+                l.y += 14.0;
                 l.finish(2.0)
             }
             Card::Status { title, dot, lines } => {

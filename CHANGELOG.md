@@ -7,6 +7,11 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Added
+
+- A failed deployment's submenu has "Show error…" and "Copy error" to read or copy the whole error message.
+- Each project's cost this billing period is shown next to its name when spend is enabled.
+
 ## [0.1.12] - 2026-11-19
 
 ### Added
