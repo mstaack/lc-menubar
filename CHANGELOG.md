@@ -7,6 +7,10 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Project costs now show up in the menu; 0.1.13 matched them to the wrong field and showed none.
+
 ## [0.1.13] - 2026-11-20
 
 ### Added

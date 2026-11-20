@@ -1710,17 +1710,9 @@ fn failed_jobs_menu(
 
 /// This billing period's cost of `app`, from its organization's usage.
 fn app_spend(s: &Snapshot, app: &model::Application) -> Option<String> {
-    // Usage names apps by identifier (a slug) or name; compare both as slugs.
-    let slug = |n: &str| {
-        n.to_lowercase()
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|w| !w.is_empty())
-            .collect::<Vec<_>>()
-            .join("-")
-    };
-    let name = slug(&app.name);
+    // Usage lists apps by `identifier`, which is the application id.
     let (_, _, u) = s.usage.iter().find(|(acc, _, _)| *acc == app.account)?;
-    let (_, cents) = u.applications.iter().find(|(n, _)| slug(n) == name)?;
+    let (_, cents) = u.applications.iter().find(|(id, _)| *id == app.id)?;
     Some(api::fmt_money(*cents, &u.currency))
 }
 
@@ -2644,7 +2636,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
         bandwidth_cost_cents: 340,
         credits: None,
         alert: Some((10_000, 52)),
-        applications: vec![("storefront".into(), 3_140), ("admin-api".into(), 1_672)],
+        applications: vec![("app1".into(), 3_140), ("app2".into(), 1_672)],
         period: {
             use chrono::{Datelike, TimeZone};
             let now = Utc::now();
@@ -2731,7 +2723,7 @@ fn demo_snapshot(period: Period) -> Snapshot {
                     spend_cents: 1_207,
                     bandwidth_pct: Some(9),
                     bandwidth_cost_cents: 0,
-                    applications: vec![("marketing-site".into(), 1_207)],
+                    applications: vec![("app3".into(), 1_207)],
                     ..usage
                 },
             ),
@@ -2866,6 +2858,17 @@ fn set_status_icon(tray: &TrayIcon, light: Light) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn app_spend_matches_usage_by_application_id() {
+        let s = demo_snapshot(Period::H1);
+        let spend = |name: &str| {
+            let app = s.apps.iter().find(|a| a.name == name).unwrap();
+            app_spend(&s, app)
+        };
+        assert_eq!(spend("storefront").as_deref(), Some("$31.40"));
+        assert_eq!(spend("marketing-site").as_deref(), Some("$12.07"));
+    }
 
     #[test]
     fn formats_bandwidth_with_extra_cost_only_when_charged() {

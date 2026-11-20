@@ -329,7 +329,8 @@ fn parse_usage(v: &serde_json::Value) -> Option<Usage> {
         .map(|apps| {
             apps.iter()
                 .filter_map(|a| {
-                    let name = ["name", "application_name", "application", "identifier"]
+                    // `identifier` is the application id; the rest are fallbacks.
+                    let name = ["identifier", "name", "application_name", "application"]
                         .iter()
                         .find_map(|k| a.get(*k).and_then(|n| n.as_str()))?;
                     let cents = ["total_cost_cents", "cost_cents"]
