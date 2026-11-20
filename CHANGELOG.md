@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-11-20
+
 ### Added
 
 - A failed deployment's submenu has "Show error…" and "Copy error" to read or copy the whole error message.
@@ -131,7 +133,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.12...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.13...HEAD
+[0.1.13]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.13
 [0.1.12]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.12
 [0.1.11]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.11
 [0.1.10]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.10
