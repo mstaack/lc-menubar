@@ -2299,7 +2299,8 @@ fn build_menu(
                 let _ =
                     sub.append(&b.item("Copy error", Some(Action::Copy(reason.to_string())), None));
             }
-            if env.latest.is_some() {
+            // The separator after the actions closes this group when there are no metrics.
+            if env.latest.is_some() && settings.metrics_enabled {
                 let _ = sub.append(&PredefinedMenuItem::separator());
             }
             if settings.metrics_enabled {

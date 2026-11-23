@@ -7,6 +7,10 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- The double divider line below "Deployment log…" in an environment's menu is now a single line.
+
 ## [0.1.16] - 2026-11-23
 
 ### Added

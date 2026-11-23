@@ -784,13 +784,17 @@ mod imp {
         let mut old = VIEW_CACHE.with(|c| std::mem::take(&mut *c.borrow_mut()));
         let mut new_cache: std::collections::HashMap<u64, Vec<Retained<NSView>>> =
             std::collections::HashMap::new();
-        let mut prev_parent: Option<usize> = None;
+        let mut prev: Option<&Path> = None;
         for (path, card) in cards {
-            // Cards inside a submenu are divided by hairlines.
-            let divided = path.len() > 1 && prev_parent == Some(path[0]);
-            if path.len() > 1 {
-                prev_parent = Some(path[0]);
-            }
+            // Adjacent cards inside a submenu are divided by hairlines; after a
+            // native item or separator the card needs none.
+            let divided = path.len() > 1
+                && prev.is_some_and(|p| {
+                    p.len() == path.len()
+                        && p[..p.len() - 1] == path[..path.len() - 1]
+                        && p[p.len() - 1] + 1 == path[path.len() - 1]
+                });
+            prev = Some(path);
             let Some(item) = item_at(top, path) else {
                 continue;
             };
