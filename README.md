@@ -29,7 +29,7 @@ xattr -dr com.apple.quarantine "/Applications/LC Menubar.app"
 - Status dot in the menu bar: failed, deploying, deployed
 - All environments across organizations, with branch, age and CPU
 - Per-environment cards: latest deploy, CPU/memory/request charts (1h–7d)
-- Actions: deploy, logs, run commands, edit env vars, start/stop, purge cache
+- Actions: deploy, deployment and app logs, run commands, edit env vars, start/stop, purge cache
 - Spend and bandwidth per organization
 - Deployment notifications
 

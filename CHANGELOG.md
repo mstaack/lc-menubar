@@ -7,6 +7,10 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Added
+
+- "Deployment log…" in an environment's menu shows the build and deploy steps of its latest deployment with their output, opens failed steps, follows a running deployment and can copy the whole log.
+
 ## [0.1.15] - 2026-11-23
 
 ### Fixed

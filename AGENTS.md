@@ -68,7 +68,7 @@ Run the app, demo and screenshots in the VMPal macOS VM ("LC Menubar macOS"), no
 
 ## Debug and screenshots
 
-- `LCM_POPUP=menu|0|1|…|settings|logs|commands|vars|update` opens the menu, an environment's submenu or a window by itself; `LCM_TAB=<tab>` (e.g. `news`) picks the Settings tab.
+- `LCM_POPUP=menu|0|1|…|settings|logs|deploylog|commands|vars|update` opens the menu, an environment's submenu or a window by itself; `LCM_TAB=<tab>` (e.g. `news`) picks the Settings tab.
 - `LCM_APPEARANCE=dark|light` forces appearance; `LCM_TEST_PERIOD=24h,1h` switches the chart range while open; `LCM_TIMING=1` prints render and window timings.
 - `--preview-cards <dir>` renders the menu cards to PNGs; `--app-icon <dir>` writes the iconset.
 - `LCM_UPDATE_REPO=owner/name` points the updater at another repo.

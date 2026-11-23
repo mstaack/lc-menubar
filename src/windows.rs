@@ -105,6 +105,9 @@ pub fn vars_html(init: &impl Serialize) -> String {
 pub fn logs_html(init: &impl Serialize) -> String {
     page(LOGS_BODY, init)
 }
+pub fn deploy_log_html(init: &impl Serialize) -> String {
+    page(DEPLOY_LOG_BODY, init)
+}
 pub fn commands_html(init: &impl Serialize) -> String {
     page(COMMANDS_BODY, init)
 }
@@ -746,6 +749,89 @@ $('#live').onclick = () => {
 fetchLogs('replace');
 </script></body>"##;
 
+const DEPLOY_LOG_BODY: &str = r##"<body>
+<style>
+body{display:flex;flex-direction:column}
+header{padding:24px 24px 4px;display:flex;align-items:baseline;gap:12px}
+#sub{padding:0 24px 12px;display:flex;align-items:center;gap:8px;min-height:20px}
+#sub .msg{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#list{flex:1;overflow:auto;padding:0 24px 16px}
+#list h2:first-child{margin-top:4px}
+.step{display:flex;align-items:center;gap:12px;padding:8px 16px;cursor:pointer}
+.card .step+.out,.card .out+.step,.card .step+.step{border-top:1px solid var(--line)}
+.step .grow{flex:1;min-width:0}
+.step .st{color:var(--text-3);font-size:12px}
+.step.failed .st{color:var(--neg)}
+.out{margin:0;padding:8px 16px 12px 36px;font-family:var(--mono);font-size:11.5px;line-height:17px;white-space:pre-wrap;
+  word-break:break-word;color:var(--text-2);background:var(--deep);-webkit-user-select:text;cursor:text}
+.out[hidden]{display:none}
+</style>
+<header><h1 id="title"></h1><span class="t3">Deployment log</span></header>
+<div id="sub" class="t3"></div>
+<div id="list"><div class="empty">Loading</div></div>
+<footer class="status"><span class="msg" id="msg"></span><button id="copy" class="quiet" disabled>Copy log</button><button id="refresh" class="quiet">Refresh</button></footer>
+<script>
+/*COMMON_JS*/
+$('#title').textContent = INIT.title;
+let text = '', timer = null;
+const open = new Set();
+function status(t, err) { const m = $('#msg'); m.textContent = t || ''; m.className = 'msg' + (err ? ' err' : ''); }
+window.toast = o => status(o.text, o.error);
+// Build output can carry terminal colour codes.
+const plain = s => (s || '').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\s+$/, '');
+function dur(ms) {
+  if (ms == null || ms < 0) return '';
+  if (ms < 1000) return ms + ' ms';
+  const s = Math.round(ms / 1000);
+  return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + (s % 60) + ' s';
+}
+const DOT = {finished: 'pos', failed: 'neg', running: 'warn'};
+const ACTIVE = ['running', 'pending'];
+function fetchLog() { status('Loading'); send({type: 'fetch'}); }
+window.logLoaded = o => {
+  const d = o.deployment || {}, data = (o.log && o.log.data) || {};
+  const sub = $('#sub'); sub.innerHTML = '';
+  sub.append(el('span', 'mono', d.hash || ''), el('span', '', d.branch || ''), el('span', 'msg', d.message || ''));
+  const list = $('#list'), keepScroll = list.scrollTop; list.innerHTML = '';
+  const lines = [`${INIT.title} · ${d.hash || ''} ${d.branch || ''}`.trim()];
+  let active = false;
+  for (const [name, phase] of [['Build', data.build], ['Deploy', data.deploy]]) {
+    list.append(el('h2', '', name));
+    lines.push('', `== ${name} ==`);
+    if (!phase || !phase.available) { list.append(el('p', 't3', `${name} logs are not available.`)); lines.push('(not available)'); continue; }
+    const card = el('div', 'card');
+    for (const [i, s] of (phase.steps || []).entries()) {
+      const out = plain(s.output), id = name + i;
+      if (ACTIVE.includes(s.status)) active = true;
+      // Failed and running steps start open; the rest open on click.
+      if (s.status === 'failed' || s.status === 'running') open.add(id);
+      const row = el('div', 'step ' + s.status);
+      row.append(el('span', 'dot ' + (DOT[s.status] || '')), el('span', 'grow', s.description || s.step),
+        el('span', 'st', [s.status !== 'finished' ? s.status : '', dur(s.duration_ms)].filter(Boolean).join(' · ')));
+      card.append(row);
+      lines.push(`-- ${s.description || s.step} (${s.status}${dur(s.duration_ms) ? ', ' + dur(s.duration_ms) : ''})`);
+      if (out) {
+        const pre = el('pre', 'out', out); pre.hidden = !open.has(id); card.append(pre);
+        row.onclick = () => { pre.hidden = !pre.hidden; pre.hidden ? open.delete(id) : open.add(id); };
+        lines.push(out);
+      }
+    }
+    list.append(card);
+  }
+  list.scrollTop = keepScroll;
+  text = lines.join('\n') + '\n';
+  $('#copy').disabled = false;
+  clearTimeout(timer);
+  // Follow a deployment that is still running.
+  if (active) timer = setTimeout(fetchLog, 5000);
+  const st = ((o.log && o.log.meta && o.log.meta.deployment_status) || d.phase || '').replace(/[._]/g, ' ');
+  status(st.charAt(0).toUpperCase() + st.slice(1) + (active ? ' · refreshing every 5 s' : ''));
+};
+window.logFailed = o => { status(o.text, true); if (!text) $('#list').innerHTML = '<div class="empty">Could not load the deployment log</div>'; };
+$('#refresh').onclick = fetchLog;
+$('#copy').onclick = () => { send({type: 'copy', text}); status('Copied'); };
+</script></body>"##;
+
 const COMMANDS_BODY: &str = r##"<body>
 <style>
 body{display:flex;flex-direction:column}
@@ -850,6 +936,7 @@ mod tests {
             settings_html(&init),
             vars_html(&init),
             logs_html(&init),
+            deploy_log_html(&init),
             commands_html(&init),
         ] {
             assert!(!html.contains("/*INIT*/"), "placeholder left in page");

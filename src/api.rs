@@ -661,6 +661,12 @@ impl Client {
             .await
     }
 
+    /// Build and deploy steps of a deployment, passed to the log window as is:
+    /// `data.{build,deploy}.{available, steps[{status, description, output, duration_ms}]}`.
+    pub async fn deployment_log(&self, id: &str) -> Result<serde_json::Value> {
+        self.get(&format!("{BASE}/deployments/{id}/logs")).await
+    }
+
     pub async fn command(&self, id: &str) -> Result<serde_json::Value> {
         self.get(&format!("{BASE}/commands/{id}")).await
     }

@@ -42,6 +42,8 @@ enum WinKey {
     Settings,
     Vars(String),
     Logs(String),
+    /// Build and deploy log of an environment's latest deployment.
+    DeployLog(String),
     Commands(String),
     /// The window offering a new version.
     Update,
@@ -276,7 +278,7 @@ fn main() {
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(1500));
             let _ = proxy.send_event(match which.as_str() {
-                "settings" | "logs" | "commands" | "vars" | "update" => {
+                "settings" | "logs" | "deploylog" | "commands" | "vars" | "update" => {
                     UserEvent::DebugWindow(which)
                 }
                 _ => UserEvent::DebugPopup(which.parse().ok()),
@@ -424,6 +426,7 @@ fn main() {
                         WinKey::Update
                     }
                     "logs" => WinKey::Logs(env),
+                    "deploylog" => WinKey::DeployLog(env),
                     "commands" => WinKey::Commands(env),
                     "vars" => WinKey::Vars(env),
                     _ => WinKey::Settings,
@@ -1026,6 +1029,14 @@ impl App {
                     windows::logs_html(&json!({ "title": label })),
                 )
             }
+            WinKey::DeployLog(env) => {
+                let label = self.env_label(env);
+                (
+                    format!("{label} — Deployment log"),
+                    (860.0, 680.0),
+                    windows::deploy_log_html(&json!({ "title": label })),
+                )
+            }
             WinKey::Update => {
                 let Some(release) = self.update.clone() else {
                     return;
@@ -1083,6 +1094,7 @@ impl App {
                 match &key {
                     WinKey::Vars(env) => self.load_vars(env),
                     WinKey::Commands(env) => self.load_history(env),
+                    WinKey::DeployLog(env) => self.load_deploy_log(env),
                     _ => {}
                 }
             }
@@ -1160,6 +1172,11 @@ impl App {
             WinKey::Settings => self.on_settings(&kind, msg),
             WinKey::Vars(env) => self.on_vars(&env, &kind, msg),
             WinKey::Logs(env) => self.on_logs(&env, &kind, msg),
+            WinKey::DeployLog(env) => match kind.as_str() {
+                "fetch" => self.load_deploy_log(&env),
+                "copy" => menu_views::copy_text(msg["text"].as_str().unwrap_or_default()),
+                _ => {}
+            },
             WinKey::Commands(env) => self.on_commands(&env, &kind, msg),
             WinKey::Update => self.on_update_window(&kind, target),
         }
@@ -1396,6 +1413,40 @@ impl App {
                     Err(e) => ("logsFailed", json!({ "text": format!("{e:#}") })),
                 },
                 Err(e) => ("logsFailed", json!({ "text": e })),
+            };
+            let _ = proxy.send_event(UserEvent::ToWindow { key, func, arg });
+        });
+    }
+
+    /// Fetch the latest deployment's log of `env_id` into its window.
+    fn load_deploy_log(&self, env_id: &str) {
+        let key = WinKey::DeployLog(env_id.to_string());
+        let Some(d) = self
+            .snapshot
+            .all_environments()
+            .find(|(_, e)| e.id == env_id)
+            .and_then(|(_, e)| e.latest.clone())
+        else {
+            return self.to_window(key, "logFailed", json!({ "text": "No deployment yet" }));
+        };
+        let head = json!({
+            "hash": d.short_hash(),
+            "branch": d.branch,
+            "message": d.commit_message,
+            "phase": format!("{:?}", d.phase()),
+        });
+        if self.demo {
+            let arg = json!({ "deployment": head, "log": demo_deploy_log() });
+            return self.to_window(key, "logLoaded", arg);
+        }
+        let (proxy, client) = (self.proxy.clone(), self.client_for(env_id));
+        self.jobs.spawn(async move {
+            let (func, arg) = match client {
+                Ok(c) => match c.deployment_log(&d.id).await {
+                    Ok(log) => ("logLoaded", json!({ "deployment": head, "log": log })),
+                    Err(e) => ("logFailed", json!({ "text": format!("{e:#}") })),
+                },
+                Err(e) => ("logFailed", json!({ "text": e })),
             };
             let _ = proxy.send_event(UserEvent::ToWindow { key, func, arg });
         });
@@ -2225,6 +2276,13 @@ fn build_menu(
 
             // Submenu: deployment card, metrics cards, range, actions.
             sub_cards.push((B::placeholder_in_sub(&sub), deployment_card(env, now)));
+            if env.latest.is_some() {
+                let _ = sub.append(&b.item(
+                    "Deployment log…",
+                    Some(Action::Window(WinKey::DeployLog(env.id.clone()))),
+                    None,
+                ));
+            }
             if let Some((d, reason)) = env.latest.as_ref().and_then(|d| {
                 let r = d.failure_reason.as_deref()?.trim();
                 (d.phase() == Phase::Failed && !r.is_empty()).then_some((d, r))
@@ -2240,6 +2298,8 @@ fn build_menu(
                 ));
                 let _ =
                     sub.append(&b.item("Copy error", Some(Action::Copy(reason.to_string())), None));
+            }
+            if env.latest.is_some() {
                 let _ = sub.append(&PredefinedMenuItem::separator());
             }
             if settings.metrics_enabled {
@@ -2484,6 +2544,26 @@ fn write_iconset(dir: &str) {
 }
 
 /// Sample data for `--demo` and `--preview-cards`.
+/// Log of the demo's latest deployment, in the API's shape.
+fn demo_deploy_log() -> Value {
+    let step = |status: &str, description: &str, output: Option<&str>, ms: i64| {
+        json!({ "step": description.to_lowercase(), "status": status,
+                "description": description, "output": output, "duration_ms": ms })
+    };
+    json!({
+        "data": {
+            "build": { "available": true, "steps": [
+                step("finished", "Cloning repository", Some("Cloning into '/app'...\nHEAD is now at 4f2a9c1 Add order export"), 1840),
+                step("finished", "Installing Composer dependencies", Some("Installing dependencies from lock file\nPackage operations: 112 installs, 0 updates, 0 removals\nGenerating optimized autoload files"), 21430),
+                step("failed", "Running build commands", Some("> npm run build\n\nvite v6.0.7 building for production...\n✗ Build failed in 2.31s\nerror during build:\nCould not resolve \"./components/OrderExport\" from \"resources/js/app.ts\""), 9120),
+                step("cancelled", "Pushing image", None, -1),
+            ]},
+            "deploy": { "available": false, "steps": [] },
+        },
+        "meta": { "deployment_status": "build.failed" },
+    })
+}
+
 /// Instances and failed jobs for the demo's storefront production.
 fn demo_details() -> model::EnvDetails {
     use model::{FailedJob, Instance};
