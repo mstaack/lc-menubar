@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-11-23
+
 ### Fixed
 
 - Connection errors in the menu now say what went wrong (e.g. "429 Too Many Requests" or "Can't connect") instead of a cut-off URL.
@@ -145,7 +147,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.14...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.15...HEAD
+[0.1.15]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.15
 [0.1.14]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.14
 [0.1.13]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.13
 [0.1.12]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.12
