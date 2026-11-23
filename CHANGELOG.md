@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-11-23
+
 ### Fixed
 
 - The double divider line below "Deployment log…" in an environment's menu is now a single line.
@@ -157,7 +159,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.16...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.17...HEAD
+[0.1.17]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.17
 [0.1.16]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.16
 [0.1.15]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.15
 [0.1.14]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.14
