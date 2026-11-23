@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-11-23
+
 ### Added
 
 - "Deployment log…" in an environment's menu shows the build and deploy steps of its latest deployment with their output, opens failed steps, follows a running deployment and can copy the whole log.
@@ -151,7 +153,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.15...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.16...HEAD
+[0.1.16]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.16
 [0.1.15]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.15
 [0.1.14]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.14
 [0.1.13]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.13
