@@ -7,14 +7,23 @@ use crate::settings::{Settings, Shared};
 use crate::system;
 use chrono::Utc;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 
 const FAST: Duration = Duration::from_secs(10);
 const TOPOLOGY_TTL: Duration = Duration::from_secs(5 * 60);
 const METRICS_TTL: Duration = Duration::from_secs(60);
 const USAGE_TTL: Duration = Duration::from_secs(10 * 60);
 const DETAILS_TTL: Duration = Duration::from_secs(2 * 60);
+/// Requests in flight at once, so a poll with many environments isn't a burst.
+const MAX_CONCURRENT: usize = 4;
+
+/// Run `f` once a request slot is free.
+async fn limited<F: std::future::Future>(slots: Arc<Semaphore>, f: F) -> F::Output {
+    let _permit = slots.acquire_owned().await;
+    f.await
+}
 
 /// (account id, token)
 pub type Credentials = Vec<(String, String)>;
@@ -66,6 +75,9 @@ struct Poller {
     details: HashMap<String, (EnvDetails, Instant)>,
     prev_index: Option<HashMap<String, (String, Phase)>>,
     last: Snapshot,
+    /// Polls in a row that failed. The first failure is retried quietly.
+    failures: u32,
+    slots: Arc<Semaphore>,
 }
 
 impl Poller {
@@ -79,6 +91,8 @@ impl Poller {
             details: HashMap::new(),
             prev_index: None,
             last: Snapshot::default(),
+            failures: 0,
+            slots: Arc::new(Semaphore::new(MAX_CONCURRENT)),
         }
     }
 
@@ -110,10 +124,21 @@ impl Poller {
                 } else {
                     self.last.clone()
                 };
+                if poll_api {
+                    let failed = snap.error.is_some() || !snap.org_errors.is_empty();
+                    self.failures = if failed { self.failures + 1 } else { 0 };
+                    if self.failures == 1 {
+                        // A single failure (e.g. right after wake) is not shown.
+                        snap.error = None;
+                        snap.org_errors.clear();
+                    }
+                }
                 snap.hidden = settings.hidden_in(&snap.apps);
                 self.last = snap.clone();
                 let normal = Duration::from_secs(settings.refresh_secs);
-                let wait = if snap.error.is_some() || !snap.org_errors.is_empty() {
+                let wait = if self.failures == 1 {
+                    FAST
+                } else if self.failures > 1 {
                     // Back off while the API fails (rate limits, outages).
                     normal.max(Duration::from_secs(120))
                 } else if snap.any_building() {
@@ -168,6 +193,7 @@ impl Poller {
                     self.details.clear();
                     self.prev_index = None;
                     self.last = Snapshot::default();
+                    self.failures = 0;
                 }
             }
         }
@@ -219,7 +245,10 @@ impl Poller {
             }
             if let Some(c) = clients.get(&app.account) {
                 let (c, id) = (c.clone(), env.id.clone());
-                jobs.spawn(async move { (id.clone(), c.metrics(&id, period).await) });
+                let slots = self.slots.clone();
+                jobs.spawn(
+                    async move { (id.clone(), limited(slots, c.metrics(&id, period)).await) },
+                );
             }
         }
         while let Some(res) = jobs.join_next().await {
@@ -334,7 +363,9 @@ impl Poller {
         let mut deploys = tokio::task::JoinSet::new();
         for (id, c) in &visible {
             let (c, id) = (c.clone(), id.clone());
-            deploys.spawn(async move { (id.clone(), c.latest_deployment(&id).await) });
+            let slots = self.slots.clone();
+            deploys
+                .spawn(async move { (id.clone(), limited(slots, c.latest_deployment(&id)).await) });
         }
         let mut metric_jobs = tokio::task::JoinSet::new();
         if settings.metrics_enabled {
@@ -346,7 +377,10 @@ impl Poller {
                     .is_some_and(|(_, at)| at.elapsed() < METRICS_TTL);
                 if !fresh {
                     let (c, id) = (c.clone(), id.clone());
-                    metric_jobs.spawn(async move { (id.clone(), c.metrics(&id, period).await) });
+                    let slots = self.slots.clone();
+                    metric_jobs.spawn(async move {
+                        (id.clone(), limited(slots, c.metrics(&id, period)).await)
+                    });
                 }
             }
         }
@@ -359,7 +393,9 @@ impl Poller {
                 .is_some_and(|(_, at)| at.elapsed() < DETAILS_TTL);
             if !fresh {
                 let (c, id) = (c.clone(), id.clone());
-                detail_jobs.spawn(async move { (id.clone(), c.env_details(&id).await) });
+                let slots = self.slots.clone();
+                detail_jobs
+                    .spawn(async move { (id.clone(), limited(slots, c.env_details(&id)).await) });
             }
         }
 

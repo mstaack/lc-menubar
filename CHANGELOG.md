@@ -7,6 +7,12 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Connection errors in the menu now say what went wrong (e.g. "429 Too Many Requests" or "Can't connect") instead of a cut-off URL.
+- A single failed refresh, such as right after waking the Mac, no longer shows an error; it is retried after 10 seconds and only shown if it fails again.
+- Refreshing many environments sends at most four requests at a time, to stay clear of API rate limits.
+
 ## [0.1.14] - 2026-11-20
 
 ### Fixed

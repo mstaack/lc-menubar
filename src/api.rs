@@ -385,6 +385,17 @@ pub fn fmt_money(cents: i64, currency: &str) -> String {
 }
 
 /// `lc-menubar/0.1.0 (macOS 27.2; arm64)`: product, version and platform only.
+/// Short label for a request that got no response.
+fn network_reason(e: &reqwest::Error) -> &'static str {
+    if e.is_timeout() {
+        "Timed out"
+    } else if e.is_connect() {
+        "Can't connect"
+    } else {
+        "Network error"
+    }
+}
+
 pub fn user_agent() -> String {
     // Computed once: `sw_vers` is a subprocess.
     static UA: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -423,15 +434,24 @@ impl Client {
         Ok(Self { http, token })
     }
 
+    /// Errors start with the reason (status or network failure), then the path, so the
+    /// part that matters survives truncation in the menu.
     async fn get<T: DeserializeOwned>(&self, url: &str) -> Result<T> {
-        let resp = self
+        let path = url.strip_prefix(BASE).unwrap_or(url);
+        let resp = match self
             .http
             .get(url)
             .bearer_auth(&self.token)
             .header("Accept", "application/json")
             .send()
             .await
-            .with_context(|| format!("GET {url}"))?;
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let reason = network_reason(&e);
+                return Err(anyhow::Error::new(e).context(format!("{reason} (GET {path})")));
+            }
+        };
         let status = resp.status();
         if status == reqwest::StatusCode::UNAUTHORIZED {
             bail!("Unauthorized: check your API token");
@@ -439,7 +459,7 @@ impl Client {
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
             bail!(
-                "GET {url} → {status}: {}",
+                "{status} (GET {path}): {}",
                 crate::model::truncate(&body, 200)
             );
         }
