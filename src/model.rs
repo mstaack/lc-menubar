@@ -226,7 +226,8 @@ impl Snapshot {
             .flat_map(|a| a.environments.iter().map(move |e| (a, e)))
     }
 
-    pub fn light(&self) -> Light {
+    /// Overall state. `failed_jobs` makes failed queue jobs count as red.
+    pub fn light(&self, failed_jobs: bool) -> Light {
         if self.error.is_some() && self.apps.is_empty() {
             return Light::Grey;
         }
@@ -234,7 +235,7 @@ impl Snapshot {
             .environments()
             .filter_map(|(_, e)| e.latest.as_ref().map(Deployment::phase))
             .collect();
-        if phases.contains(&Phase::Failed) {
+        if phases.contains(&Phase::Failed) || (failed_jobs && self.with_failed_jobs() > 0) {
             Light::Red
         } else if phases.contains(&Phase::Building) {
             Light::Yellow
@@ -243,6 +244,30 @@ impl Snapshot {
         } else {
             Light::Green
         }
+    }
+
+    /// Visible environments with failed queue jobs.
+    pub fn with_failed_jobs(&self) -> usize {
+        self.environments()
+            .filter(|(_, e)| {
+                e.details
+                    .as_ref()
+                    .is_some_and(|d| !d.failed_jobs.is_empty())
+            })
+            .count()
+    }
+
+    /// Failed job ids per environment whose details are known, for diffing between polls.
+    pub fn job_index(&self) -> HashMap<String, HashSet<String>> {
+        self.all_environments()
+            .filter_map(|(_, e)| {
+                let d = e.details.as_ref()?;
+                Some((
+                    e.id.clone(),
+                    d.failed_jobs.iter().map(|j| j.id.clone()).collect(),
+                ))
+            })
+            .collect()
     }
 
     pub fn any_building(&self) -> bool {
@@ -321,6 +346,39 @@ pub fn notices(prev: Option<&HashMap<String, (String, Phase)>>, next: &Snapshot)
             Phase::Unknown => continue,
         };
         out.push(notice);
+    }
+    out
+}
+
+/// Notifications for failed queue jobs that appeared since the last poll, one per
+/// environment. Environments without a previous list (first poll, newly shown,
+/// details not loaded yet) stay silent.
+pub fn job_notices(prev: &HashMap<String, HashSet<String>>, next: &Snapshot) -> Vec<Notice> {
+    let mut out = vec![];
+    for (app, env) in next.environments() {
+        let (Some(d), Some(seen)) = (&env.details, prev.get(&env.id)) else {
+            continue;
+        };
+        let new: Vec<&FailedJob> = d
+            .failed_jobs
+            .iter()
+            .filter(|j| !seen.contains(&j.id))
+            .collect();
+        let Some(first) = new.first() else { continue };
+        let n = new.len();
+        out.push(Notice {
+            phase: Phase::Failed,
+            title: format!(
+                "{n} failed job{}: {} · {}",
+                if n == 1 { "" } else { "s" },
+                app.name,
+                env.name
+            ),
+            body: match &first.exception {
+                Some(e) => format!("{}: {}", first.name, first_line(e)),
+                None => first.name.clone(),
+            },
+        });
     }
     out
 }
@@ -559,10 +617,10 @@ mod tests {
 
     #[test]
     fn light_priority() {
-        assert_eq!(snap(&[]).light(), Light::Grey);
-        assert_eq!(snap(&[("prod", None)]).light(), Light::Grey);
+        assert_eq!(snap(&[]).light(false), Light::Grey);
+        assert_eq!(snap(&[("prod", None)]).light(false), Light::Grey);
         assert_eq!(
-            snap(&[("prod", Some(dep("1", "deployment.succeeded")))]).light(),
+            snap(&[("prod", Some(dep("1", "deployment.succeeded")))]).light(false),
             Light::Green
         );
         assert_eq!(
@@ -570,7 +628,7 @@ mod tests {
                 ("prod", Some(dep("1", "deployment.succeeded"))),
                 ("stg", Some(dep("2", "build.running")))
             ])
-            .light(),
+            .light(false),
             Light::Yellow
         );
         assert_eq!(
@@ -578,7 +636,7 @@ mod tests {
                 ("prod", Some(dep("1", "build.failed"))),
                 ("stg", Some(dep("2", "build.running")))
             ])
-            .light(),
+            .light(false),
             Light::Red
         );
     }
@@ -586,7 +644,7 @@ mod tests {
     #[test]
     fn cancelled_counts_as_settled() {
         assert_eq!(
-            snap(&[("prod", Some(dep("1", "cancelled")))]).light(),
+            snap(&[("prod", Some(dep("1", "cancelled")))]).light(false),
             Light::Green
         );
     }
@@ -641,10 +699,55 @@ mod tests {
             ("prod", Some(dep("1", "deployment.succeeded"))),
             ("stg", Some(dep("2", "build.failed"))),
         ]);
-        assert_eq!(s.light(), Light::Red);
+        assert_eq!(s.light(false), Light::Red);
         s.hidden.insert("stg".into());
-        assert_eq!(s.light(), Light::Green);
+        assert_eq!(s.light(false), Light::Green);
         assert_eq!(s.all_environments().count(), 2);
+    }
+
+    fn job(id: &str) -> FailedJob {
+        FailedJob {
+            id: id.into(),
+            instance_id: "i".into(),
+            name: "App\\Jobs\\Sync".into(),
+            queue: None,
+            attempts: 1,
+            exception: Some("RuntimeException: boom\nat line 1".into()),
+            failed_at: None,
+        }
+    }
+
+    fn with_jobs(mut s: Snapshot, ids: &[&str]) -> Snapshot {
+        s.apps[0].environments[0].details = Some(EnvDetails {
+            instances: vec![],
+            failed_jobs: ids.iter().map(|i| job(i)).collect(),
+        });
+        s
+    }
+
+    #[test]
+    fn failed_jobs_turn_the_light_red_only_when_enabled() {
+        let s = with_jobs(
+            snap(&[("prod", Some(dep("1", "deployment.succeeded")))]),
+            &["j1"],
+        );
+        assert_eq!(s.light(false), Light::Green);
+        assert_eq!(s.light(true), Light::Red);
+        assert_eq!(s.with_failed_jobs(), 1);
+    }
+
+    #[test]
+    fn notifies_new_failed_jobs_once() {
+        let base = snap(&[("prod", Some(dep("1", "deployment.succeeded")))]);
+        let before = with_jobs(base.clone(), &["j1"]);
+        let after = with_jobs(base.clone(), &["j1", "j2", "j3"]);
+        let n = job_notices(&before.job_index(), &after);
+        assert_eq!(n.len(), 1);
+        assert_eq!(n[0].title, "2 failed jobs: Shop · prod");
+        assert_eq!(n[0].body, "App\\Jobs\\Sync: RuntimeException: boom");
+        assert!(job_notices(&after.job_index(), &after).is_empty());
+        // No previous list (first poll, details not loaded yet): silent.
+        assert!(job_notices(&base.job_index(), &after).is_empty());
     }
 
     #[test]

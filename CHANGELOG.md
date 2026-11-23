@@ -7,6 +7,16 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Added
+
+- Settings to sort projects by name or latest deployment, hide stopped environments, and choose how often to check while a deployment runs.
+- Optional notification when new failed queue jobs appear, and an option to turn the status dot red for failed jobs.
+- Option to show the deploying environment next to the status dot.
+
+### Changed
+
+- "Open site" no longer lists the laravel.cloud domain when the environment has a custom domain; turn this off in Settings › Menu and metrics.
+
 ## [0.1.18] - 2026-11-23
 
 ### Changed

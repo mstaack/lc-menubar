@@ -39,6 +39,29 @@ pub struct Settings {
     pub active_account: Option<String>,
     /// Look for new releases on GitHub every few hours.
     pub check_updates: bool,
+    /// Poll interval while a deployment runs (seconds).
+    pub deploy_refresh_secs: u64,
+    /// Drop the laravel.cloud domain from "Open site" when a custom domain exists.
+    pub hide_cloud_domain: bool,
+    /// Hide stopped environments like hidden ones.
+    pub hide_stopped: bool,
+    pub project_sort: ProjectSort,
+    /// Failed queue jobs turn the status dot red.
+    pub failed_jobs_red: bool,
+    pub notify_failed_jobs: bool,
+    /// The deploying environment next to the status dot.
+    pub show_deploying_in_menu_bar: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectSort {
+    /// As Laravel Cloud returns them.
+    #[default]
+    Cloud,
+    Name,
+    /// Most recent deployment first.
+    Recent,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,7 +76,9 @@ impl Settings {
         app: &crate::model::Application,
         env: &crate::model::Environment,
     ) -> bool {
-        self.hidden_apps.contains(&app.id) || self.hidden_envs.contains(&env.id)
+        self.hidden_apps.contains(&app.id)
+            || self.hidden_envs.contains(&env.id)
+            || (self.hide_stopped && env.status == "stopped")
     }
 
     /// Ids of every hidden environment in `apps`: hidden by itself or by its project.
@@ -92,6 +117,13 @@ impl Default for Settings {
             ],
             active_account: None,
             check_updates: true,
+            deploy_refresh_secs: 10,
+            hide_cloud_domain: true,
+            hide_stopped: false,
+            project_sort: ProjectSort::Cloud,
+            failed_jobs_red: false,
+            notify_failed_jobs: false,
+            show_deploying_in_menu_bar: false,
         }
     }
 }
@@ -99,6 +131,7 @@ impl Default for Settings {
 impl Settings {
     pub fn sanitized(mut self) -> Self {
         self.refresh_secs = self.refresh_secs.clamp(15, 3600);
+        self.deploy_refresh_secs = self.deploy_refresh_secs.clamp(5, 60);
         self
     }
 }
@@ -272,6 +305,36 @@ mod tests {
     }
 
     #[test]
+    fn hide_stopped_hides_stopped_environments() {
+        use crate::model::{Application, Environment};
+        let env = Environment {
+            id: "e1".into(),
+            name: "staging".into(),
+            status: "stopped".into(),
+            domains: vec![],
+            latest: None,
+            metrics: None,
+            details: None,
+            recent_branches: vec![],
+        };
+        let app = Application {
+            id: "a1".into(),
+            account: "x".into(),
+            org: "Org".into(),
+            name: "one".into(),
+            default_branch: None,
+            repository: None,
+            environments: vec![],
+        };
+        assert!(!Settings::default().is_hidden(&app, &env));
+        let s = Settings {
+            hide_stopped: true,
+            ..Settings::default()
+        };
+        assert!(s.is_hidden(&app, &env));
+    }
+
+    #[test]
     fn partial_json_falls_back_to_defaults() {
         let s: Settings =
             serde_json::from_str(r#"{"refresh_secs": 5, "metrics_period": "24h"}"#).unwrap();
@@ -279,6 +342,8 @@ mod tests {
         assert_eq!(s.refresh_secs, 15);
         assert_eq!(s.metrics_period, Period::H24);
         assert!(s.notify_failed);
+        assert!(s.hide_cloud_domain);
+        assert_eq!(s.deploy_refresh_secs, 10);
     }
 
     #[test]

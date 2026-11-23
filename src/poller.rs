@@ -6,11 +6,12 @@ use crate::model::{self, Application, EnvDetails, Metrics, Phase, Snapshot};
 use crate::settings::{Settings, Shared};
 use crate::system;
 use chrono::Utc;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Semaphore, mpsc};
 
+/// Retry after a single failed poll.
 const FAST: Duration = Duration::from_secs(10);
 const TOPOLOGY_TTL: Duration = Duration::from_secs(5 * 60);
 const METRICS_TTL: Duration = Duration::from_secs(60);
@@ -74,6 +75,8 @@ struct Poller {
     /// Instances and failed jobs per environment.
     details: HashMap<String, (EnvDetails, Instant)>,
     prev_index: Option<HashMap<String, (String, Phase)>>,
+    /// Failed job ids per environment at the last poll.
+    prev_jobs: HashMap<String, HashSet<String>>,
     last: Snapshot,
     /// Polls in a row that failed. The first failure is retried quietly.
     failures: u32,
@@ -90,6 +93,7 @@ impl Poller {
             metrics: HashMap::new(),
             details: HashMap::new(),
             prev_index: None,
+            prev_jobs: HashMap::new(),
             last: Snapshot::default(),
             failures: 0,
             slots: Arc::new(Semaphore::new(MAX_CONCURRENT)),
@@ -142,7 +146,7 @@ impl Poller {
                     // Back off while the API fails (rate limits, outages).
                     normal.max(Duration::from_secs(120))
                 } else if snap.any_building() {
-                    FAST
+                    Duration::from_secs(settings.deploy_refresh_secs)
                 } else {
                     normal
                 };
@@ -192,6 +196,7 @@ impl Poller {
                     self.metrics.clear();
                     self.details.clear();
                     self.prev_index = None;
+                    self.prev_jobs.clear();
                     self.last = Snapshot::default();
                     self.failures = 0;
                 }
@@ -280,7 +285,13 @@ impl Poller {
                 tokio::task::spawn_blocking(move || system::notify(&n.title, &n.body));
             }
         }
+        if settings.notify_failed_jobs {
+            for n in model::job_notices(&self.prev_jobs, &visible) {
+                tokio::task::spawn_blocking(move || system::notify(&n.title, &n.body));
+            }
+        }
         self.prev_index = Some(snap.index());
+        self.prev_jobs = snap.job_index();
     }
 
     async fn poll(&mut self, settings: &Settings) -> Snapshot {

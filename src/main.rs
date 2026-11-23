@@ -20,7 +20,7 @@ use model::{
 };
 use poller::{Command, Credentials};
 use serde_json::{Value, json};
-use settings::{Account, Settings, Shared};
+use settings::{Account, ProjectSort, Settings, Shared};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tao::event::{Event, StartCause, WindowEvent};
@@ -578,9 +578,9 @@ impl App {
             }
             self.org_ids = built.org_ids;
             let view = active_view(&self.snapshot, &settings);
-            let _ = tray.set_tooltip(Some(summary(&view)));
+            let _ = tray.set_tooltip(Some(summary(&view, settings.failed_jobs_red)));
             tray.set_title(menu_title(&view, &settings));
-            set_status_icon(tray, view.light());
+            set_status_icon(tray, view.light(settings.failed_jobs_red));
             return;
         }
         let t1 = std::time::Instant::now();
@@ -604,10 +604,10 @@ impl App {
         self.menu = Some(menu.clone());
         tray.set_menu(Some(Box::new(menu)));
         let view = active_view(&self.snapshot, &settings);
-        let _ = tray.set_tooltip(Some(summary(&view)));
+        let _ = tray.set_tooltip(Some(summary(&view, settings.failed_jobs_red)));
         tray.set_title(menu_title(&view, &settings));
         // After the title: the dot is placed relative to where the image is drawn.
-        set_status_icon(tray, view.light());
+        set_status_icon(tray, view.light(settings.failed_jobs_red));
     }
 
     fn set_org(&mut self, i: usize) {
@@ -1633,7 +1633,8 @@ fn active_view(s: &Snapshot, settings: &Settings) -> Snapshot {
     v
 }
 
-fn summary(s: &Snapshot) -> String {
+/// `jobs` also counts environments with failed queue jobs.
+fn summary(s: &Snapshot, jobs: bool) -> String {
     let (mut building, mut failed, mut total) = (0, 0, 0);
     for (_, e) in s.environments() {
         if let Some(d) = &e.latest {
@@ -1657,6 +1658,10 @@ fn summary(s: &Snapshot) -> String {
     }
     if building > 0 {
         parts.push(format!("{building} deploying"));
+    }
+    let with_jobs = if jobs { s.with_failed_jobs() } else { 0 };
+    if with_jobs > 0 {
+        parts.push(format!("{with_jobs} with failed jobs"));
     }
     if parts.is_empty() {
         parts.push(format!("All {total} deployed"));
@@ -2043,12 +2048,58 @@ fn metric_cards(m: &Metrics, selected: Period) -> Vec<Card> {
 const AUTHOR_URL: &str = "https://github.com/mstaack";
 const ABOUT_TEXT: &str = "Made by Max in Hamburg, Germany (github.com/mstaack), 100% vibe-coded with Claude.\n\nLC Menubar is an independent project, not affiliated with Laravel Holdings Inc.";
 
-/// Text next to the status dot: the total spend, when enabled.
+/// Text next to the status dot, when enabled: the deploying environment, else the
+/// total spend.
 fn menu_title(view: &Snapshot, settings: &Settings) -> Option<String> {
+    if settings.show_deploying_in_menu_bar {
+        let building: Vec<_> = view
+            .environments()
+            .filter(|(_, e)| {
+                e.latest
+                    .as_ref()
+                    .is_some_and(|d| d.phase() == Phase::Building)
+            })
+            .collect();
+        match building.as_slice() {
+            [] => {}
+            [(app, env)] => return Some(truncate(&format!("{} · {}", app.name, env.name), 28)),
+            many => return Some(format!("{} deploying", many.len())),
+        }
+    }
     settings
         .show_spend_in_menu_bar
         .then(|| total_spend(view))
         .flatten()
+}
+
+/// Projects in menu order.
+fn sorted_apps(apps: &[model::Application], sort: ProjectSort) -> Vec<&model::Application> {
+    let mut out: Vec<_> = apps.iter().collect();
+    match sort {
+        ProjectSort::Cloud => {}
+        ProjectSort::Name => out.sort_by_cached_key(|a| a.name.to_lowercase()),
+        ProjectSort::Recent => out.sort_by_cached_key(|a| {
+            std::cmp::Reverse(
+                a.environments
+                    .iter()
+                    .filter_map(|e| e.latest.as_ref()?.when())
+                    .max(),
+            )
+        }),
+    }
+    out
+}
+
+/// Domains offered under "Open site". With `hide_cloud`, the laravel.cloud domain
+/// is left out when the environment has a custom domain.
+fn site_domains(domains: &[String], hide_cloud: bool) -> Vec<&str> {
+    let cloud = |d: &str| d.ends_with(".laravel.cloud");
+    let custom = domains.iter().any(|d| !cloud(d));
+    domains
+        .iter()
+        .map(String::as_str)
+        .filter(|d| !(hide_cloud && custom && cloud(d)))
+        .collect()
 }
 
 fn deployment_card(env: &Environment, now: chrono::DateTime<Utc>) -> Card {
@@ -2136,7 +2187,7 @@ fn build_menu(
         .collect();
 
     // Header card: overall state.
-    let light = s.light();
+    let light = s.light(settings.failed_jobs_red);
     let dot_color = match light {
         Light::Green => charts::POSITIVE,
         Light::Yellow => charts::WARNING,
@@ -2166,7 +2217,7 @@ fn build_menu(
             title: if loading {
                 "Loading".into()
             } else {
-                summary(s)
+                summary(s, settings.failed_jobs_red)
             },
             dot: Some(dot_color),
             lines,
@@ -2194,7 +2245,7 @@ fn build_menu(
     }
 
     let s = full;
-    for app in &s.apps {
+    for app in sorted_apps(&s.apps, settings.project_sort) {
         let envs: Vec<_> = app
             .environments
             .iter()
@@ -2413,7 +2464,7 @@ fn build_menu(
             }
             let _ = sub.append(&PredefinedMenuItem::separator());
             let site = |d: &str| Some(Action::OpenUrl(format!("https://{d}")));
-            match env.domains.as_slice() {
+            match site_domains(&env.domains, settings.hide_cloud_domain).as_slice() {
                 [] => {}
                 [domain] => {
                     let _ = sub.append(&b.item("Open site", site(domain), None));
@@ -2950,6 +3001,43 @@ fn set_status_icon(tray: &TrayIcon, light: Light) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hides_the_cloud_domain_only_next_to_a_custom_one() {
+        let both = ["example.com".to_string(), "shop.laravel.cloud".to_string()];
+        assert_eq!(site_domains(&both, true), ["example.com"]);
+        assert_eq!(
+            site_domains(&both, false),
+            ["example.com", "shop.laravel.cloud"]
+        );
+        let cloud = ["shop.laravel.cloud".to_string()];
+        assert_eq!(site_domains(&cloud, true), ["shop.laravel.cloud"]);
+    }
+
+    #[test]
+    fn sorts_projects() {
+        let mut s = demo_snapshot(Period::H1);
+        s.apps.truncate(3);
+        let names = |sort| -> Vec<String> {
+            sorted_apps(&s.apps, sort)
+                .iter()
+                .map(|a| a.name.clone())
+                .collect()
+        };
+        let cloud: Vec<String> = s.apps.iter().map(|a| a.name.clone()).collect();
+        assert_eq!(names(ProjectSort::Cloud), cloud);
+        let mut by_name = cloud.clone();
+        by_name.sort_by_key(|n| n.to_lowercase());
+        assert_eq!(names(ProjectSort::Name), by_name);
+        let latest = |a: &model::Application| {
+            a.environments
+                .iter()
+                .filter_map(|e| e.latest.as_ref()?.when())
+                .max()
+        };
+        let recent = sorted_apps(&s.apps, ProjectSort::Recent);
+        assert!(recent.windows(2).all(|w| latest(w[0]) >= latest(w[1])));
+    }
 
     #[test]
     fn app_spend_matches_usage_by_application_id() {

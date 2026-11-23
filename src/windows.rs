@@ -349,8 +349,10 @@ footer.status:has(.msg:empty){display:none}
     </div>
     <h2>Refresh</h2>
     <div class="card">
-      <div class="row"><div class="grow">Check for changes every<span class="hint">While a deployment runs, LC Menubar checks every 10 seconds</span></div>
+      <div class="row"><div class="grow">Check for changes every</div>
         <select data-k="refresh_secs" data-num><option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select></div>
+      <div class="row"><div class="grow">While a deployment runs, check every</div>
+        <select data-k="deploy_refresh_secs" data-num><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="20">20 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option></select></div>
     </div>
     <h2>Updates</h2>
     <div class="card">
@@ -386,11 +388,27 @@ footer.status:has(.msg:empty){display:none}
       <div class="row"><div class="grow">Failed</div><input type="checkbox" class="switch" data-k="notify_failed"></div>
       <div class="row"><div class="grow">Cancelled</div><input type="checkbox" class="switch" data-k="notify_cancelled"></div>
     </div>
+    <h2>Queues</h2>
+    <div class="card">
+      <div class="row"><div class="grow">New failed jobs<span class="hint">Failed jobs are checked every 2 minutes</span></div><input type="checkbox" class="switch" data-k="notify_failed_jobs"></div>
+    </div>
   </section>
 
   <section id="menu">
     <h1>Menu and metrics</h1>
     <p class="lead">What the menu shows for each environment</p>
+    <h2>Projects</h2>
+    <div class="card">
+      <div class="row"><div class="grow">Sort projects by</div>
+        <select data-k="project_sort"><option value="cloud">Laravel Cloud order</option><option value="name">Name</option><option value="recent">Latest deployment</option></select></div>
+      <div class="row"><div class="grow">Hide stopped environments<span class="hint">Start them in Laravel Cloud. They are not checked and do not change the status dot</span></div><input type="checkbox" class="switch" data-k="hide_stopped"></div>
+      <div class="row"><div class="grow">Hide the laravel.cloud domain when a custom domain exists<span class="hint">Open site then only lists your own domains</span></div><input type="checkbox" class="switch" data-k="hide_cloud_domain"></div>
+    </div>
+    <h2>Status dot</h2>
+    <div class="card">
+      <div class="row"><div class="grow">Failed queue jobs turn the dot red</div><input type="checkbox" class="switch" data-k="failed_jobs_red"></div>
+      <div class="row"><div class="grow">Show the deploying environment next to the dot<span class="hint">Takes the place of the spend total while a deployment runs</span></div><input type="checkbox" class="switch" data-k="show_deploying_in_menu_bar"></div>
+    </div>
     <h2>Metrics</h2>
     <div class="card">
       <div class="row"><div class="grow">Show metrics<span class="hint">CPU, memory, requests, replicas and web workers in each environment's submenu</span></div><input type="checkbox" class="switch" data-k="metrics_enabled"></div>
