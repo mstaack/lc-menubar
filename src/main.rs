@@ -1703,7 +1703,7 @@ fn failed_jobs_menu(
     instance_ids.sort();
     instance_ids.dedup();
     let _ = menu.append(&b.item(
-        "Delete all…",
+        "Delete all",
         act(EnvAction::DeleteAllJobs {
             instance_ids,
             count: jobs.len(),
@@ -1734,7 +1734,7 @@ fn failed_jobs_menu(
         }
         let _ = job.append(&PredefinedMenuItem::separator());
         let _ = job.append(&b.item(
-            "Retry…",
+            "Retry",
             act(EnvAction::RetryJob {
                 instance_id: j.instance_id.clone(),
                 job_id: j.id.clone(),
@@ -1743,7 +1743,7 @@ fn failed_jobs_menu(
             None,
         ));
         let _ = job.append(&b.item(
-            "Delete…",
+            "Delete",
             act(EnvAction::DeleteJob {
                 instance_id: j.instance_id.clone(),
                 job_id: j.id.clone(),
@@ -1754,7 +1754,7 @@ fn failed_jobs_menu(
         let _ = menu.append(&job);
     }
     if jobs.len() > 20 {
-        let _ = menu.append(&b.item(&format!("{} more…", jobs.len() - 20), None, None));
+        let _ = menu.append(&b.item(&format!("{} more", jobs.len() - 20), None, None));
     }
     menu
 }
@@ -2278,7 +2278,7 @@ fn build_menu(
             sub_cards.push((B::placeholder_in_sub(&sub), deployment_card(env, now)));
             if env.latest.is_some() {
                 let _ = sub.append(&b.item(
-                    "Deployment log…",
+                    "Deployment log",
                     Some(Action::Window(WinKey::DeployLog(env.id.clone()))),
                     None,
                 ));
@@ -2288,7 +2288,7 @@ fn build_menu(
                 (d.phase() == Phase::Failed && !r.is_empty()).then_some((d, r))
             }) {
                 let _ = sub.append(&b.item(
-                    "Show error…",
+                    "Show error",
                     Some(Action::ShowText {
                         title: format!("Deployment {} failed", d.short_hash()),
                         // A dialog can't scroll; Copy error has the full text.
@@ -2350,7 +2350,7 @@ fn build_menu(
                 if building {
                     "Deploying…"
                 } else {
-                    "Deploy now…"
+                    "Deploy now"
                 },
                 if building {
                     None
@@ -2386,23 +2386,20 @@ fn build_menu(
                 let _ = branch_menu.append(&PredefinedMenuItem::separator());
             }
             let _ = branch_menu.append(&b.item(
-                "Other branch…",
+                "Other branch",
                 env_act(EnvAction::SwitchBranch(None)),
                 None,
             ));
             let _ = sub.append(&branch_menu);
+            let _ =
+                sub.append(&b.item("Logs", Some(Action::Window(WinKey::Logs(id.clone()))), None));
             let _ = sub.append(&b.item(
-                "Logs…",
-                Some(Action::Window(WinKey::Logs(id.clone()))),
-                None,
-            ));
-            let _ = sub.append(&b.item(
-                "Run command…",
+                "Run command",
                 Some(Action::Window(WinKey::Commands(id.clone()))),
                 None,
             ));
             let _ = sub.append(&b.item(
-                "Environment variables…",
+                "Environment variables",
                 Some(Action::Window(WinKey::Vars(id.clone()))),
                 None,
             ));
@@ -2415,13 +2412,19 @@ fn build_menu(
                 let _ = sub.append(&failed_jobs_menu(&mut b, &id, jobs, now));
             }
             let _ = sub.append(&PredefinedMenuItem::separator());
-            if let Some(domain) = &env.domain {
-                let url = if domain.starts_with("http") {
-                    domain.clone()
-                } else {
-                    format!("https://{domain}")
-                };
-                let _ = sub.append(&b.item("Open site", Some(Action::OpenUrl(url)), None));
+            let site = |d: &str| Some(Action::OpenUrl(format!("https://{d}")));
+            match env.domains.as_slice() {
+                [] => {}
+                [domain] => {
+                    let _ = sub.append(&b.item("Open site", site(domain), None));
+                }
+                domains => {
+                    let sites = Submenu::new("Open site", true);
+                    for d in domains {
+                        let _ = sites.append(&b.item(d, site(d), None));
+                    }
+                    let _ = sub.append(&sites);
+                }
             }
             if let Some(d) = env.latest.as_ref().filter(|d| !d.commit_hash.is_empty()) {
                 let _ = sub.append(&match &app.repository {
@@ -2441,9 +2444,9 @@ fn build_menu(
             let stopped = matches!(env.status.as_str(), "stopped");
             let _ = sub.append(&b.item(
                 if stopped {
-                    "Start environment…"
+                    "Start environment"
                 } else {
-                    "Stop environment…"
+                    "Stop environment"
                 },
                 env_act(if stopped {
                     EnvAction::Start
@@ -2452,7 +2455,7 @@ fn build_menu(
                 }),
                 None,
             ));
-            let _ = sub.append(&b.item("Purge edge cache…", env_act(EnvAction::Purge), None));
+            let _ = sub.append(&b.item("Purge edge cache", env_act(EnvAction::Purge), None));
             let top = menu.items().len();
             b.owned.push((top, app.account.clone()));
             let _ = menu.append(&sub);
@@ -2491,7 +2494,7 @@ fn build_menu(
             menu.append(&b.item(&format!("Installing LC Menubar {version}…"), None, None))
         } else {
             menu.append(&b.item(
-                &format!("Update to LC Menubar {version}…"),
+                &format!("Update to LC Menubar {version}"),
                 Some(Action::Update),
                 None,
             ))
@@ -2504,7 +2507,7 @@ fn build_menu(
         None,
     ));
     let _ = menu.append(&b.item(
-        "Settings…",
+        "Settings",
         Some(Action::Window(WinKey::Settings)),
         "CmdOrCtrl+,".parse().ok(),
     ));
@@ -2704,7 +2707,15 @@ fn demo_snapshot(period: Period) -> Snapshot {
         id: id.into(),
         name: name.into(),
         status: "running".into(),
-        domain: Some(format!("{name}.example.laravel.cloud")),
+        domains: if name == "production" {
+            vec![
+                "example.com".into(),
+                "www.example.com".into(),
+                format!("{name}.example.laravel.cloud"),
+            ]
+        } else {
+            vec![format!("{name}.example.laravel.cloud")]
+        },
         recent_branches: vec![d.branch.clone(), "release/2.4".into()],
         latest: Some(d),
         metrics: m,
@@ -2880,7 +2891,7 @@ fn preview_cards(dir: &str) {
         id: "e".into(),
         name: "production".into(),
         status: "running".into(),
-        domain: None,
+        domains: vec![],
         latest: Some(model::Deployment {
             id: "d".into(),
             status: "deployment.succeeded".into(),

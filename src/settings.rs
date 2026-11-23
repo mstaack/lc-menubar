@@ -235,7 +235,7 @@ mod tests {
             id: id.into(),
             name: id.into(),
             status: "running".into(),
-            domain: None,
+            domains: vec![],
             latest: None,
             metrics: None,
             details: None,

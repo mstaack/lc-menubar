@@ -27,6 +27,24 @@ struct Links {
 struct Resource<T> {
     id: String,
     attributes: T,
+    #[serde(default)]
+    relationships: Relationships,
+}
+
+#[derive(Deserialize, Default)]
+struct Relationships {
+    #[serde(default, rename = "primaryDomain")]
+    primary_domain: Option<Relationship>,
+}
+
+#[derive(Deserialize)]
+struct Relationship {
+    data: Option<Identifier>,
+}
+
+#[derive(Deserialize)]
+struct Identifier {
+    id: String,
 }
 
 #[derive(Deserialize)]
@@ -52,6 +70,33 @@ struct EnvAttrs {
     status: String,
     #[serde(default)]
     vanity_domain: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DomainAttrs {
+    name: String,
+    #[serde(default, rename = "type")]
+    kind: String,
+    #[serde(default)]
+    hostname_status: String,
+}
+
+/// Hostnames to open: verified custom domains with the primary one first, then the
+/// laravel.cloud domain. Wildcard domains have no single page to open.
+fn site_domains(
+    primary: Option<&str>,
+    domains: Vec<Resource<DomainAttrs>>,
+    vanity: Option<String>,
+) -> Vec<String> {
+    let mut custom: Vec<_> = domains
+        .into_iter()
+        .filter(|d| d.attributes.hostname_status == "verified" && d.attributes.kind != "wildcard")
+        .collect();
+    custom.sort_by_key(|d| Some(d.id.as_str()) != primary);
+    let mut out: Vec<String> = custom.into_iter().map(|d| d.attributes.name).collect();
+    out.extend(vanity.filter(|d| !d.is_empty()));
+    out.dedup();
+    out
 }
 
 #[derive(Deserialize)]
@@ -488,8 +533,35 @@ impl Client {
         let mut out = vec![];
         for app in apps {
             let envs = self
-                .get_all::<EnvAttrs>(&format!("/applications/{}/environments", app.id))
+                .get_all::<EnvAttrs>(&format!(
+                    "/applications/{}/environments?include=primaryDomain",
+                    app.id
+                ))
                 .await?;
+            let mut environments = vec![];
+            for e in envs {
+                // Custom domains are optional: without them the site still opens on
+                // its laravel.cloud domain.
+                let domains = self
+                    .get_all::<DomainAttrs>(&format!("/environments/{}/domains", e.id))
+                    .await
+                    .unwrap_or_default();
+                let primary = e.relationships.primary_domain.and_then(|r| r.data);
+                environments.push(Environment {
+                    domains: site_domains(
+                        primary.as_ref().map(|p| p.id.as_str()),
+                        domains,
+                        e.attributes.vanity_domain,
+                    ),
+                    id: e.id,
+                    name: e.attributes.name,
+                    status: e.attributes.status,
+                    latest: None,
+                    metrics: None,
+                    details: None,
+                    recent_branches: vec![],
+                });
+            }
             out.push(Application {
                 id: app.id.clone(),
                 account: String::new(),
@@ -506,19 +578,7 @@ impl Client {
                     .as_ref()
                     .and_then(|r| r.full_name.clone())
                     .filter(|n| n.contains('/')),
-                environments: envs
-                    .into_iter()
-                    .map(|e| Environment {
-                        id: e.id,
-                        name: e.attributes.name,
-                        status: e.attributes.status,
-                        domain: e.attributes.vanity_domain.filter(|d| !d.is_empty()),
-                        latest: None,
-                        metrics: None,
-                        details: None,
-                        recent_branches: vec![],
-                    })
-                    .collect(),
+                environments,
             });
         }
         Ok(out)
@@ -1047,5 +1107,32 @@ mod tests {
             Some("shop.laravel.cloud")
         );
         assert!(page.links.is_none());
+    }
+
+    #[test]
+    fn site_domains_put_the_primary_first_and_skip_unusable_ones() {
+        let envs: Page<EnvAttrs> = serde_json::from_str(
+            r#"{"data":[{"id":"env-1","attributes":{"name":"production","vanity_domain":"shop.laravel.cloud"},
+            "relationships":{"primaryDomain":{"data":{"type":"domains","id":"d-2"}}}}]}"#,
+        )
+        .unwrap();
+        let domains: Page<DomainAttrs> = serde_json::from_str(
+            r#"{"data":[
+            {"id":"d-1","attributes":{"name":"old.example.com","type":"root","hostname_status":"verified"}},
+            {"id":"d-2","attributes":{"name":"example.com","type":"root","hostname_status":"verified"}},
+            {"id":"d-3","attributes":{"name":"new.example.com","type":"root","hostname_status":"pending"}},
+            {"id":"d-4","attributes":{"name":"*.example.com","type":"wildcard","hostname_status":"verified"}}]}"#,
+        )
+        .unwrap();
+        let env = envs.data.into_iter().next().unwrap();
+        let primary = env.relationships.primary_domain.and_then(|r| r.data);
+        assert_eq!(
+            site_domains(
+                primary.as_ref().map(|p| p.id.as_str()),
+                domains.data,
+                env.attributes.vanity_domain
+            ),
+            ["example.com", "old.example.com", "shop.laravel.cloud"]
+        );
     }
 }

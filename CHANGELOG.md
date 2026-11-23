@@ -7,6 +7,14 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Menu items no longer end in "…".
+
+### Fixed
+
+- "Open site" opens the environment's primary domain instead of its laravel.cloud domain; with several domains it lists them all to choose from.
+
 ## [0.1.17] - 2026-11-23
 
 ### Fixed

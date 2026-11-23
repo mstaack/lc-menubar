@@ -156,7 +156,8 @@ pub struct Environment {
     pub id: String,
     pub name: String,
     pub status: String,
-    pub domain: Option<String>,
+    /// Hostnames to open, primary domain first, the laravel.cloud domain last.
+    pub domains: Vec<String>,
     pub latest: Option<Deployment>,
     pub metrics: Option<Metrics>,
     /// Instances and failed jobs (fetched less often than deployments).
@@ -480,7 +481,7 @@ mod tests {
             id: String::new(),
             name: String::new(),
             status: String::new(),
-            domain: None,
+            domains: vec![],
             latest: None,
             metrics: None,
             details: None,
@@ -531,7 +532,7 @@ mod tests {
                         id: env.to_string(),
                         name: env.to_string(),
                         status: "running".into(),
-                        domain: None,
+                        domains: vec![],
                         latest: d.clone(),
                         metrics: None,
                         details: None,
