@@ -7,6 +7,8 @@ What's new page in Settings, are taken from this file.
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-11-23
+
 ### Added
 
 - Settings to sort projects by name or latest deployment, hide stopped environments, and choose how often to check while a deployment runs.
@@ -179,7 +181,8 @@ First public release.
 - About LC Menubar in the menu, with the version and credits.
 - Install with Homebrew: `brew install --cask mstaack/tap/lc-menubar`.
 
-[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.18...HEAD
+[Unreleased]: https://github.com/mstaack/lc-menubar/compare/v0.1.19...HEAD
+[0.1.19]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.19
 [0.1.18]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.18
 [0.1.17]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.17
 [0.1.16]: https://github.com/mstaack/lc-menubar/releases/tag/v0.1.16
